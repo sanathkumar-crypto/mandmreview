@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Patient Timeline - M&M Review</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="min-h-screen" style="background-color: #f8f9fa;">
+        <header class="header">
+            <div class="header-content">
+                <h1 class="header-title">M&M Review System</h1>
+                <div class="header-actions">
+                    <span class="user-name">{{ user_name }}</span>
+                    <a href="{{ url_for('logout') }}" class="btn-logout">Logout</a>
+                </div>
+            </div>
+        </header>
+        
+        <main class="max-w-full px-6 py-6">
+            <!-- Patient Info Card -->
+            <div class="patient-info-card">
+                <div class="patient-info-grid">
+                    <div class="patient-info-item">
+                        <span class="patient-info-label">Name:</span>
+                        <span class="patient-info-value">{{ patient.name }}</span>
+                    </div>
+                    <div class="patient-info-item">
+                        <span class="patient-info-label">MRN:</span>
+                        <span class="patient-info-value">{{ patient.mrn }}</span>
+                    </div>
+                    <div class="patient-info-item">
+                        <span class="patient-info-label">DOB:</span>
+                        <span class="patient-info-value">{{ patient.dob }}</span>
+                    </div>
+                    <div class="patient-info-item">
+                        <span class="patient-info-label">Age:</span>
+                        <span class="patient-info-value">{{ patient.age }}</span>
+                    </div>
+                    <div class="patient-info-item">
+                        <span class="patient-info-label">Gender:</span>
+                        <span class="patient-info-value">{{ patient.gender }}</span>
+                    </div>
+                    <div class="patient-info-item">
+                        <span class="patient-info-label">Admission:</span>
+                        <span class="patient-info-value">{{ patient.admission }}</span>
+                    </div>
+                    <div class="patient-info-item full-width">
+                        <span class="patient-info-label">Diagnosis:</span>
+                        <span class="patient-info-value">{{ patient.diagnosis }}</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Timeline Header -->
+            <div class="mb-4 mt-6">
+                <h2 style="color: var(--primary-dark-blue); font-size: 1.5rem; font-weight: bold;">
+                    Chronological Patient Timeline
+                </h2>
+                <p class="text-sm opacity-70 mt-1">
+                    All events displayed in chronological order for M&M review
+                </p>
+            </div>
+            
+            <!-- Timeline Table -->
+            <div class="timeline-container">
+                <table class="timeline-table">
+                    <thead>
+                        <tr>
+                            <th class="timeline-col">Timeline</th>
+                            <th class="notes-col">Notes</th>
+                            <th class="orders-col">Orders</th>
+                            <th class="labs-col">Lab Reports</th>
+                            <th class="vitals-col">Vitals</th>
+                            <th class="io-col">Input/Output</th>
+                        </tr>
+                    </thead>
+                    <tbody id="timeline-body">
+                        <!-- Timeline rows will be populated by JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+        </main>
+    </div>
+    
+    <script>
+        const timelineEvents = {{ events | tojson }};
+    </script>
+    <script src="{{ url_for('static', filename='js/timeline.js') }}"></script>
+</body>
+</html>
+

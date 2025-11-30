@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - M&M Review</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="min-h-screen flex items-center justify-center" style="background-color: #f8f9fa;">
+        <div class="bg-white p-8 rounded-lg shadow-lg text-center max-w-md w-full">
+            <h1 class="text-2xl font-bold mb-6" style="color: var(--primary-dark-blue);">M&M Review System</h1>
+            <p class="mb-6 text-gray-600">Please sign in with your @cloudphysician.net account</p>
+            
+            {% if not oauth_configured %}
+            <div class="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded">
+                <p class="text-sm text-yellow-800 mb-4">OAuth not configured. Using development mode.</p>
+                <a href="{{ url_for('login_callback') }}?dev=true" class="btn-primary">
+                    Continue as Development User
+                </a>
+            </div>
+            {% else %}
+            <a href="{{ url_for('login') }}" class="btn-primary">
+                Sign in with Google
+            </a>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>
+

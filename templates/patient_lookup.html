@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Patient Lookup - M&M Review</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="min-h-screen" style="background-color: #f8f9fa;">
+        <header class="header">
+            <div class="header-content">
+                <h1 class="header-title">M&M Review System</h1>
+                <div class="header-actions">
+                    <span class="user-name">{{ session.get('user_name', 'User') }}</span>
+                    <a href="{{ url_for('logout') }}" class="btn-logout">Logout</a>
+                </div>
+            </div>
+        </header>
+        
+        <main class="max-w-full px-6 py-6">
+            <div class="bg-white p-8 rounded-lg shadow-md max-w-2xl mx-auto">
+                <h2 class="text-2xl font-bold mb-6" style="color: var(--primary-dark-blue);">Patient Lookup</h2>
+                <form method="POST" action="{{ url_for('patient_lookup') }}">
+                    <div class="form-group mb-4">
+                        <label for="cpmrn" class="form-label">CPMRN</label>
+                        <input type="text" id="cpmrn" name="cpmrn" class="form-input" placeholder="Enter CPMRN" required>
+                    </div>
+                    <div class="form-group mb-6">
+                        <label for="encounters" class="form-label">Encounters</label>
+                        <input type="text" id="encounters" name="encounters" class="form-input" placeholder="Enter encounters" required>
+                    </div>
+                    <button type="submit" class="btn-primary w-full">Load Patient Data</button>
+                </form>
+            </div>
+        </main>
+    </div>
+</body>
+</html>
+
