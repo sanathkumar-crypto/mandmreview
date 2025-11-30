@@ -14,8 +14,10 @@ build/
 .DS_Store
 .session/
 .flask_session/
-*.json
-!pat_jsons.json
-!package.json
-!package-lock.json
+
+# Sensitive files - do not commit
+*-*.json
+sanaths-projects-*.json
+*.pem
+*.key
 
