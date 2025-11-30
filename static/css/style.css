@@ -362,6 +362,47 @@ body {
     width: 200px;
 }
 
+.analysis-col {
+    width: 250px;
+    font-size: 0.75rem;
+}
+
+/* Analysis Section Styles */
+.analysis-section {
+    margin-bottom: 1.5rem;
+}
+
+.analysis-card {
+    background-color: var(--white);
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+    border-left: 4px solid var(--primary-blue);
+}
+
+.analysis-title {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--primary-dark-blue);
+    margin-bottom: 1rem;
+}
+
+.analysis-content {
+    color: var(--text-dark);
+    line-height: 1.6;
+    font-size: 0.875rem;
+    white-space: pre-wrap;
+}
+
+.analysis-content ul {
+    margin-left: 1.5rem;
+    margin-top: 0.5rem;
+}
+
+.analysis-content li {
+    margin-bottom: 0.5rem;
+}
+
 /* Event Type Styles */
 .event-note {
     padding: 0.5rem;

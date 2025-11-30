@@ -63,6 +63,20 @@
                 </p>
             </div>
             
+            <!-- LLM Analysis Section -->
+            <div class="analysis-section mb-6">
+                <div class="analysis-card">
+                    <h3 class="analysis-title">Timeline Summary (LLM Analysis)</h3>
+                    <div class="analysis-content">
+                        {% if timeline_summary %}
+                            {{ timeline_summary | safe }}
+                        {% else %}
+                            <p class="text-gray-600">Analysis not available. Please configure Gemini API key.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            
             <!-- Timeline Table -->
             <div class="timeline-container">
                 <table class="timeline-table">
@@ -74,12 +88,27 @@
                             <th class="labs-col">Lab Reports</th>
                             <th class="vitals-col">Vitals</th>
                             <th class="io-col">Input/Output</th>
+                            <th class="analysis-col">Unaddressed Events</th>
                         </tr>
                     </thead>
                     <tbody id="timeline-body">
                         <!-- Timeline rows will be populated by JavaScript -->
                     </tbody>
                 </table>
+            </div>
+            
+            <!-- Unaddressed Events Analysis -->
+            <div class="analysis-section mt-6">
+                <div class="analysis-card">
+                    <h3 class="analysis-title">Unaddressed Vitals & Lab Results (LLM Analysis)</h3>
+                    <div class="analysis-content">
+                        {% if unaddressed_analysis %}
+                            {{ unaddressed_analysis | safe }}
+                        {% else %}
+                            <p class="text-gray-600">Analysis not available. Please configure Gemini API key.</p>
+                        {% endif %}
+                    </div>
+                </div>
             </div>
         </main>
     </div>

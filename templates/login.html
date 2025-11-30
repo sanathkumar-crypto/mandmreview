@@ -14,10 +14,18 @@
             
             {% if not oauth_configured %}
             <div class="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded">
-                <p class="text-sm text-yellow-800 mb-4">OAuth not configured. Using development mode.</p>
+                <p class="text-sm text-yellow-800 mb-4 font-semibold">OAuth not configured or invalid credentials.</p>
+                {% if oauth_error %}
+                <p class="text-xs text-red-600 mb-2">Error: {{ oauth_error }}</p>
+                {% endif %}
+                <p class="text-sm text-yellow-800 mb-4">Using development mode. You can bypass authentication for testing.</p>
                 <a href="{{ url_for('login_callback') }}?dev=true" class="btn-primary">
                     Continue as Development User
                 </a>
+                <p class="text-xs text-gray-600 mt-4">
+                    To fix OAuth: Check your .env file and verify credentials in 
+                    <a href="https://console.cloud.google.com/apis/credentials" target="_blank" class="underline">Google Cloud Console</a>
+                </p>
             </div>
             {% else %}
             <a href="{{ url_for('login') }}" class="btn-primary">

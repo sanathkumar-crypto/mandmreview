@@ -2,7 +2,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const timelineBody = document.getElementById('timeline-body');
     
     if (!timelineEvents || timelineEvents.length === 0) {
-        timelineBody.innerHTML = '<tr><td colspan="6" class="text-center p-4">No timeline events found</td></tr>';
+        timelineBody.innerHTML = '<tr><td colspan="7" class="text-center p-4">No timeline events found</td></tr>';
         return;
     }
     
@@ -163,6 +163,12 @@ function createTimelineRow(timestamp, events) {
         ioCell.innerHTML = '<span class="empty-cell">-</span>';
     }
     row.appendChild(ioCell);
+    
+    // Unaddressed Events column (empty for individual rows, analysis shown separately)
+    const analysisCell = document.createElement('td');
+    analysisCell.className = 'analysis-col';
+    analysisCell.innerHTML = '<span class="empty-cell">-</span>';
+    row.appendChild(analysisCell);
     
     return row;
 }

@@ -7,6 +7,12 @@ import json
 import os
 from config import Config
 from data_processor import process_patient_data, get_patient_info
+from llm_analyzer import analyze_timeline_summary, analyze_unaddressed_events
+
+# Allow HTTP for localhost (required for local development)
+# WARNING: Only use this for local development, never in production!
+if os.environ.get('FLASK_ENV') == 'development' or 'localhost' in os.environ.get('GOOGLE_REDIRECT_URI', ''):
+    os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -55,32 +61,70 @@ def login():
         return redirect(url_for('patient_lookup'))
     
     # Check if we have OAuth credentials configured
-    if not app.config.get('GOOGLE_CLIENT_ID') or not app.config.get('GOOGLE_CLIENT_SECRET'):
-        # For development, allow bypass
-        return render_template('login.html', oauth_configured=False)
+    client_id = app.config.get('GOOGLE_CLIENT_ID', '').strip()
+    client_secret = app.config.get('GOOGLE_CLIENT_SECRET', '').strip()
+    redirect_uri = app.config.get('GOOGLE_REDIRECT_URI', 'http://localhost:5000/login/callback').strip()
     
-    flow = Flow.from_client_config(
-        {
+    # Debug logging
+    print(f"DEBUG: Client ID present: {bool(client_id)}")
+    print(f"DEBUG: Client ID length: {len(client_id) if client_id else 0}")
+    print(f"DEBUG: Client ID starts with: {client_id[:20] if client_id else 'N/A'}...")
+    print(f"DEBUG: Client Secret present: {bool(client_secret)}")
+    print(f"DEBUG: Redirect URI: {redirect_uri}")
+    
+    if not client_id or not client_secret:
+        # For development, allow bypass
+        error_msg = "OAuth credentials not found in configuration"
+        print(f"DEBUG: {error_msg}")
+        return render_template('login.html', oauth_configured=False, oauth_error=error_msg)
+    
+    try:
+        # Validate client ID format
+        if not client_id.endswith('.apps.googleusercontent.com'):
+            raise ValueError(f"Invalid Client ID format. Should end with .apps.googleusercontent.com")
+        
+        # Validate client secret format
+        if not client_secret.startswith('GOCSPX-'):
+            print("WARNING: Client Secret doesn't start with GOCSPX-, but continuing anyway...")
+        
+        client_config = {
             "web": {
-                "client_id": app.config['GOOGLE_CLIENT_ID'],
-                "client_secret": app.config['GOOGLE_CLIENT_SECRET'],
+                "client_id": client_id,
+                "client_secret": client_secret,
                 "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                 "token_uri": "https://oauth2.googleapis.com/token",
-                "redirect_uris": [app.config['GOOGLE_REDIRECT_URI']]
+                "redirect_uris": [redirect_uri]
             }
-        },
-        scopes=SCOPES
-    )
-    flow.redirect_uri = app.config['GOOGLE_REDIRECT_URI']
-    
-    authorization_url, state = flow.authorization_url(
-        access_type='offline',
-        include_granted_scopes='true',
-        prompt='consent'
-    )
-    
-    session['oauth_state'] = state
-    return redirect(authorization_url)
+        }
+        
+        print(f"DEBUG: Creating OAuth flow with redirect URI: {redirect_uri}")
+        flow = Flow.from_client_config(client_config, scopes=SCOPES)
+        flow.redirect_uri = redirect_uri
+        
+        authorization_url, state = flow.authorization_url(
+            access_type='offline',
+            include_granted_scopes='true',
+            prompt='consent'
+        )
+        
+        session['oauth_state'] = state
+        print(f"DEBUG: OAuth flow created successfully, redirecting to: {authorization_url[:100]}...")
+        return redirect(authorization_url)
+    except ValueError as e:
+        error_msg = f"Configuration error: {str(e)}"
+        print(f"DEBUG: {error_msg}")
+        return render_template('login.html', 
+                             oauth_configured=False, 
+                             oauth_error=error_msg)
+    except Exception as e:
+        # If OAuth fails, show error and allow dev bypass
+        error_msg = f"OAuth error: {str(e)}"
+        print(f"DEBUG: {error_msg}")
+        import traceback
+        traceback.print_exc()
+        return render_template('login.html', 
+                             oauth_configured=False, 
+                             oauth_error=error_msg)
 
 @app.route('/login/callback')
 def login_callback():
@@ -92,56 +136,80 @@ def login_callback():
         return redirect(url_for('patient_lookup'))
     
     if 'error' in request.args:
-        return f"Error: {request.args.get('error')}", 400
+        error = request.args.get('error')
+        error_description = request.args.get('error_description', '')
+        print(f"DEBUG: OAuth error from Google: {error}")
+        print(f"DEBUG: Error description: {error_description}")
+        return render_template('login.html', 
+                             oauth_configured=False, 
+                             oauth_error=f"OAuth Error: {error}. {error_description}")
     
     state = session.get('oauth_state')
-    if not state or state != request.args.get('state'):
+    received_state = request.args.get('state')
+    if not state or state != received_state:
+        print(f"DEBUG: State mismatch. Expected: {state}, Received: {received_state}")
         return "Invalid state parameter", 400
     
-    if not app.config.get('GOOGLE_CLIENT_ID') or not app.config.get('GOOGLE_CLIENT_SECRET'):
+    client_id = app.config.get('GOOGLE_CLIENT_ID', '').strip()
+    client_secret = app.config.get('GOOGLE_CLIENT_SECRET', '').strip()
+    redirect_uri = app.config.get('GOOGLE_REDIRECT_URI', 'http://localhost:5000/login/callback').strip()
+    
+    if not client_id or not client_secret:
         return "OAuth not configured", 500
     
-    flow = Flow.from_client_config(
-        {
+    try:
+        print(f"DEBUG: Creating OAuth flow for callback with redirect URI: {redirect_uri}")
+        client_config = {
             "web": {
-                "client_id": app.config['GOOGLE_CLIENT_ID'],
-                "client_secret": app.config['GOOGLE_CLIENT_SECRET'],
+                "client_id": client_id,
+                "client_secret": client_secret,
                 "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                 "token_uri": "https://oauth2.googleapis.com/token",
-                "redirect_uris": [app.config['GOOGLE_REDIRECT_URI']]
+                "redirect_uris": [redirect_uri]
             }
-        },
-        scopes=SCOPES,
-        state=state
-    )
-    flow.redirect_uri = app.config['GOOGLE_REDIRECT_URI']
-    
-    flow.fetch_token(authorization_response=request.url)
-    
-    credentials = flow.credentials
-    session['credentials'] = {
-        'token': credentials.token,
-        'refresh_token': credentials.refresh_token,
-        'token_uri': credentials.token_uri,
-        'client_id': credentials.client_id,
-        'client_secret': credentials.client_secret,
-        'scopes': credentials.scopes
-    }
-    
-    # Get user info
-    service = build('oauth2', 'v2', credentials=credentials)
-    user_info = service.userinfo().get().execute()
-    
-    email = user_info.get('email', '')
-    if not email.endswith('@cloudphysician.net'):
-        session.clear()
-        return "Access denied. Only @cloudphysician.net email addresses are allowed.", 403
-    
-    session['user_email'] = email
-    session['user_name'] = user_info.get('name', email)
-    session.pop('oauth_state', None)
-    
-    return redirect(url_for('patient_lookup'))
+        }
+        
+        flow = Flow.from_client_config(client_config, scopes=SCOPES, state=state)
+        flow.redirect_uri = redirect_uri
+        
+        print(f"DEBUG: Fetching token with URL: {request.url[:200]}...")
+        flow.fetch_token(authorization_response=request.url)
+        print("DEBUG: Token fetched successfully")
+        
+        credentials = flow.credentials
+        session['credentials'] = {
+            'token': credentials.token,
+            'refresh_token': credentials.refresh_token,
+            'token_uri': credentials.token_uri,
+            'client_id': credentials.client_id,
+            'client_secret': credentials.client_secret,
+            'scopes': credentials.scopes
+        }
+        
+        # Get user info
+        print("DEBUG: Building OAuth2 service to get user info")
+        service = build('oauth2', 'v2', credentials=credentials)
+        user_info = service.userinfo().get().execute()
+        print(f"DEBUG: User info retrieved: {user_info.get('email', 'N/A')}")
+        
+        email = user_info.get('email', '')
+        if not email.endswith('@cloudphysician.net'):
+            session.clear()
+            return "Access denied. Only @cloudphysician.net email addresses are allowed.", 403
+        
+        session['user_email'] = email
+        session['user_name'] = user_info.get('name', email)
+        session.pop('oauth_state', None)
+        
+        return redirect(url_for('patient_lookup'))
+    except Exception as e:
+        error_msg = f"OAuth callback error: {str(e)}"
+        print(f"DEBUG: {error_msg}")
+        import traceback
+        traceback.print_exc()
+        return render_template('login.html', 
+                             oauth_configured=False, 
+                             oauth_error=error_msg)
 
 @app.route('/logout')
 def logout():
@@ -176,9 +244,15 @@ def timeline():
         if hasattr(event['timestamp'], 'isoformat'):
             event['timestamp'] = event['timestamp'].isoformat()
     
+    # Generate LLM analyses
+    timeline_summary = analyze_timeline_summary(timeline_events)
+    unaddressed_analysis = analyze_unaddressed_events(timeline_events)
+    
     return render_template('timeline.html', 
                          patient=patient_info, 
                          events=timeline_events,
+                         timeline_summary=timeline_summary,
+                         unaddressed_analysis=unaddressed_analysis,
                          user_name=session.get('user_name', 'User'))
 
 @app.route('/api/patient-data', methods=['POST'])
