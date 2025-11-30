@@ -418,6 +418,14 @@ body {
     margin-bottom: 0.25rem;
 }
 
+.event-email {
+    font-size: 0.7rem;
+    color: var(--text-light);
+    font-style: italic;
+    margin-top: 0.25rem;
+    margin-bottom: 0.25rem;
+}
+
 .event-note-content {
     color: var(--text-dark);
     font-size: 0.875rem;

@@ -57,8 +57,11 @@ function createTimelineRow(timestamp, events) {
         noteEvents.forEach(note => {
             const noteDiv = document.createElement('div');
             noteDiv.className = 'event-note';
+            const authorName = note.data.author || 'Unknown';
+            const authorEmail = note.data.email || '';
+            const authorDisplay = authorEmail ? `${authorName} (${authorEmail})` : authorName;
             noteDiv.innerHTML = `
-                <div class="event-note-author">${escapeHtml(note.data.author || 'Unknown')}</div>
+                <div class="event-note-author">${escapeHtml(authorDisplay)}</div>
                 <div class="event-note-content">${escapeHtml(note.data.content || '')}</div>
             `;
             notesCell.appendChild(noteDiv);
@@ -78,9 +81,12 @@ function createTimelineRow(timestamp, events) {
             orderDiv.className = 'event-order';
             const action = order.data.action || 'created';
             const actionText = action === 'created' ? 'Ordered' : action === 'updated' ? 'Updated' : 'Discontinued';
+            const email = order.data.email || '';
+            const emailDisplay = email ? `<div class="event-email">${escapeHtml(email)}</div>` : '';
             orderDiv.innerHTML = `
                 <div class="event-order-action">${actionText}</div>
                 <div>${escapeHtml(order.data.investigation || '')}</div>
+                ${emailDisplay}
             `;
             ordersCell.appendChild(orderDiv);
         });
@@ -98,6 +104,9 @@ function createTimelineRow(timestamp, events) {
             const labDiv = document.createElement('div');
             labDiv.className = 'event-lab';
             let html = `<div class="event-lab-name">${escapeHtml(lab.data.test || '')}</div>`;
+            if (lab.data.email) {
+                html += `<div class="event-email">${escapeHtml(lab.data.email)}</div>`;
+            }
             if (lab.data.reportedAt) {
                 html += `<div class="event-lab-reported">Reported: ${escapeHtml(lab.data.reportedAt)}</div>`;
             }
@@ -122,6 +131,10 @@ function createTimelineRow(timestamp, events) {
             vitalDiv.className = 'event-vital';
             const vitalData = vital.data;
             let html = '';
+            // Show email first if available
+            if (vitalData.email) {
+                html += `<div class="event-email">${escapeHtml(vitalData.email)}</div>`;
+            }
             if (vitalData.temp) html += `<div class="event-vital-item"><span class="event-vital-label">Temp:</span>${escapeHtml(vitalData.temp)}</div>`;
             if (vitalData.hr) html += `<div class="event-vital-item"><span class="event-vital-label">HR:</span>${escapeHtml(vitalData.hr)}</div>`;
             if (vitalData.rr) html += `<div class="event-vital-item"><span class="event-vital-label">RR:</span>${escapeHtml(vitalData.rr)}</div>`;

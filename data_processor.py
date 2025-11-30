@@ -55,29 +55,43 @@ def extract_notes(patient_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         # Extract all components
         content = note.get('content', [])
         note_text_parts = []
+        author_name = 'Unknown'
+        author_email = ''
+        
+        # Author can be in the note itself or in content items
+        author = note.get('author', {})
+        if isinstance(author, dict):
+            author_name = author.get('name', 'Unknown')
+            author_email = author.get('email', '')
         
         for item in content:
-            if isinstance(item, dict) and 'components' in item:
-                components = item.get('components', [])
-                for component in components:
-                    display_name = component.get('displayName', '')
-                    value = component.get('value', '')
+            # Check if author is in this content item
+            if isinstance(item, dict):
+                item_author = item.get('author', {})
+                if isinstance(item_author, dict) and item_author.get('name'):
+                    author_name = item_author.get('name', author_name)
+                    author_email = item_author.get('email', author_email)
+                
+                # Extract components
+                if 'components' in item:
+                    components = item.get('components', [])
+                    for component in components:
+                        display_name = component.get('displayName', '')
+                        value = component.get('value', '')
+                        if value:
+                            parsed_value = parse_html_content(value)
+                            if parsed_value:
+                                note_text_parts.append(f"{display_name}: {parsed_value}")
+                else:
+                    # Direct component
+                    display_name = item.get('displayName', '')
+                    value = item.get('value', '')
                     if value:
                         parsed_value = parse_html_content(value)
                         if parsed_value:
                             note_text_parts.append(f"{display_name}: {parsed_value}")
-            elif isinstance(item, dict):
-                # Direct component
-                display_name = item.get('displayName', '')
-                value = item.get('value', '')
-                if value:
-                    parsed_value = parse_html_content(value)
-                    if parsed_value:
-                        note_text_parts.append(f"{display_name}: {parsed_value}")
         
         if note_text_parts:
-            author = note.get('author', {})
-            author_name = author.get('name', 'Unknown') if isinstance(author, dict) else 'Unknown'
             note_text = ' | '.join(note_text_parts)
             
             events.append({
@@ -85,6 +99,7 @@ def extract_notes(patient_data: Dict[str, Any]) -> List[Dict[str, Any]]:
                 'type': 'note',
                 'data': {
                     'author': author_name,
+                    'email': author_email,
                     'content': note_text
                 }
             })
@@ -107,12 +122,16 @@ def extract_orders(patient_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         if created_at:
             timestamp = parse_timestamp(created_at)
             if timestamp:
+                created_by = lab.get('createdBy', '')
+                signed = lab.get('signed', '')
+                email = created_by if created_by else signed
                 events.append({
                     'timestamp': timestamp,
                     'type': 'order',
                     'data': {
                         'investigation': investigation,
-                        'action': 'created'
+                        'action': 'created',
+                        'email': email
                     }
                 })
         
@@ -120,12 +139,16 @@ def extract_orders(patient_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         if updated_at and updated_at != created_at:
             timestamp = parse_timestamp(updated_at)
             if timestamp:
+                created_by = lab.get('createdBy', '')
+                signed = lab.get('signed', '')
+                email = created_by if created_by else signed
                 events.append({
                     'timestamp': timestamp,
                     'type': 'order',
                     'data': {
                         'investigation': investigation,
-                        'action': 'updated'
+                        'action': 'updated',
+                        'email': email
                     }
                 })
         
@@ -133,12 +156,17 @@ def extract_orders(patient_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         if discontinue_at:
             timestamp = parse_timestamp(discontinue_at)
             if timestamp:
+                discontinue_by = lab.get('discontinueBy', '')
+                created_by = lab.get('createdBy', '')
+                signed = lab.get('signed', '')
+                email = discontinue_by if discontinue_by else (created_by if created_by else signed)
                 events.append({
                     'timestamp': timestamp,
                     'type': 'order',
                     'data': {
                         'investigation': investigation,
-                        'action': 'discontinued'
+                        'action': 'discontinued',
+                        'email': email
                     }
                 })
     
@@ -153,12 +181,16 @@ def extract_orders(patient_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         if created_at:
             timestamp = parse_timestamp(created_at)
             if timestamp:
+                created_by = lab.get('createdBy', '')
+                signed = lab.get('signed', '')
+                email = created_by if created_by else signed
                 events.append({
                     'timestamp': timestamp,
                     'type': 'order',
                     'data': {
                         'investigation': investigation,
-                        'action': 'created'
+                        'action': 'created',
+                        'email': email
                     }
                 })
         
@@ -166,12 +198,16 @@ def extract_orders(patient_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         if updated_at and updated_at != created_at:
             timestamp = parse_timestamp(updated_at)
             if timestamp:
+                created_by = lab.get('createdBy', '')
+                signed = lab.get('signed', '')
+                email = created_by if created_by else signed
                 events.append({
                     'timestamp': timestamp,
                     'type': 'order',
                     'data': {
                         'investigation': investigation,
-                        'action': 'updated'
+                        'action': 'updated',
+                        'email': email
                     }
                 })
         
@@ -179,12 +215,17 @@ def extract_orders(patient_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         if discontinue_at:
             timestamp = parse_timestamp(discontinue_at)
             if timestamp:
+                discontinue_by = lab.get('discontinueBy', '')
+                created_by = lab.get('createdBy', '')
+                signed = lab.get('signed', '')
+                email = discontinue_by if discontinue_by else (created_by if created_by else signed)
                 events.append({
                     'timestamp': timestamp,
                     'type': 'order',
                     'data': {
                         'investigation': investigation,
-                        'action': 'discontinued'
+                        'action': 'discontinued',
+                        'email': email
                     }
                 })
     
@@ -226,13 +267,22 @@ def extract_lab_reports(patient_data: Dict[str, Any]) -> List[Dict[str, Any]]:
             else:
                 reported_at_str = str(reported_at)
         
+        # Extract email from verified field
+        verified = doc.get('verified', {})
+        email = ''
+        if isinstance(verified, dict):
+            verified_by = verified.get('by', {})
+            if isinstance(verified_by, dict):
+                email = verified_by.get('email', '')
+        
         events.append({
             'timestamp': timestamp,
             'type': 'lab',
             'data': {
                 'test': name,
                 'results': attr_text,
-                'reportedAt': reported_at_str
+                'reportedAt': reported_at_str,
+                'email': email
             }
         })
     
@@ -290,6 +340,13 @@ def extract_vitals(patient_data: Dict[str, Any]) -> List[Dict[str, Any]]:
                     vital_data['position'] = str(value)
         
         if vital_data:
+            # Extract email from verifiedBy field
+            verified_by = vital.get('verifiedBy', {})
+            email = ''
+            if isinstance(verified_by, dict):
+                email = verified_by.get('email', '')
+            
+            vital_data['email'] = email
             events.append({
                 'timestamp': timestamp,
                 'type': 'vital',
