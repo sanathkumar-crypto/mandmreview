@@ -46,9 +46,14 @@ export GEMINI_API_KEY="your-gemini-api-key"
 # Optional for OAuth authentication
 export GOOGLE_CLIENT_ID="your-client-id"
 export GOOGLE_CLIENT_SECRET="your-client-secret"
-export GOOGLE_REDIRECT_URI="http://localhost:5000/login/callback"
-export SECRET_KEY="your-secret-key"
+export GOOGLE_REDIRECT_URI="http://localhost:5001/login/callback"
+
+# Flask secret key (generate a secure random string)
+# Generate one with: python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+export SECRET_KEY="your-secret-key-here"
 ```
+
+**Note:** `SECRET_KEY` is used by Flask to sign session cookies. Generate a secure random string - it doesn't come from any service, you create it yourself. For production (Cloud Run), store it in Google Secret Manager.
 
 6. Run the application:
 ```bash
@@ -57,7 +62,7 @@ source venv/bin/activate
 python app.py
 ```
 
-7. Access the application at `http://localhost:5000`
+7. Access the application at `http://localhost:5001`
 
 **Note:** If you're not using a virtual environment, you can run the app directly with:
 ```bash

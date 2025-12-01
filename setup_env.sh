@@ -31,11 +31,11 @@ if [ ! -z "$CLIENT_SECRET" ]; then
     echo "✓ Google OAuth Client Secret set"
 fi
 
-read -p "Enter your OAuth Redirect URI (default: http://localhost:5000/login/callback): " REDIRECT_URI
+read -p "Enter your OAuth Redirect URI (default: http://localhost:5001/login/callback): " REDIRECT_URI
 if [ ! -z "$REDIRECT_URI" ]; then
     export GOOGLE_REDIRECT_URI="$REDIRECT_URI"
 else
-    export GOOGLE_REDIRECT_URI="http://localhost:5000/login/callback"
+    export GOOGLE_REDIRECT_URI="http://localhost:5001/login/callback"
 fi
 
 # Secret Key

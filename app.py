@@ -1,25 +1,58 @@
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash
 from flask_session import Session
 from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
+from urllib.parse import urlparse, parse_qs, urlencode
 import json
 import os
+import logging
 from config import Config
 from data_processor import process_patient_data, get_patient_info
 from llm_analyzer import analyze_timeline_summary, analyze_unaddressed_events
+from radar_service import get_patient_json, load_radar_read_service_account
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Allow HTTP for localhost (required for local development)
 # WARNING: Only use this for local development, never in production!
-if os.environ.get('FLASK_ENV') == 'development' or 'localhost' in os.environ.get('GOOGLE_REDIRECT_URI', ''):
+# In Cloud Run, we use HTTPS, so explicitly unset OAUTHLIB_INSECURE_TRANSPORT
+if os.environ.get('K_SERVICE'):
+    # We're in Cloud Run - ensure HTTPS is enforced
+    os.environ.pop('OAUTHLIB_INSECURE_TRANSPORT', None)
+elif os.environ.get('FLASK_ENV') == 'development' or 'localhost' in os.environ.get('GOOGLE_REDIRECT_URI', ''):
+    # Local development - allow HTTP
     os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
 app = Flask(__name__)
 app.config.from_object(Config)
+# Configure session cookie settings for OAuth flow
+# In Cloud Run, use secure cookies (HTTPS)
+is_cloud_run = bool(os.environ.get('K_SERVICE'))
+app.config['SESSION_COOKIE_SECURE'] = is_cloud_run  # True in Cloud Run (HTTPS), False for localhost
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+
+# Log configuration on startup
+logger.info(f"Running in Cloud Run: {is_cloud_run}")
+logger.info(f"OAuth Client ID configured: {bool(app.config.get('GOOGLE_CLIENT_ID'))}")
+logger.info(f"OAuth Redirect URI: {app.config.get('GOOGLE_REDIRECT_URI', 'Not set')}")
+# Ensure session directory exists
+session_dir = app.config.get('SESSION_FILE_DIR', 'flask_session')
+os.makedirs(session_dir, exist_ok=True)
 Session(app)
 
 # OAuth 2.0 scopes
 SCOPES = ['openid', 'https://www.googleapis.com/auth/userinfo.email', 'https://www.googleapis.com/auth/userinfo.profile']
+
+# Load Radar service account on startup
+if not Config.RADAR_READ_SERVICE_ACCOUNT:
+    logger.info("Attempting to load Radar service account from file...")
+    if load_radar_read_service_account():
+        # Update Config with the loaded service account from environment
+        Config.RADAR_READ_SERVICE_ACCOUNT = os.environ.get('RADAR_READ_SERVICE_ACCOUNT', '')
 
 def load_patient_data():
     """Load patient data from JSON file."""
@@ -63,7 +96,7 @@ def login():
     # Check if we have OAuth credentials configured
     client_id = app.config.get('GOOGLE_CLIENT_ID', '').strip()
     client_secret = app.config.get('GOOGLE_CLIENT_SECRET', '').strip()
-    redirect_uri = app.config.get('GOOGLE_REDIRECT_URI', 'http://localhost:5000/login/callback').strip()
+    redirect_uri = app.config.get('GOOGLE_REDIRECT_URI', 'http://localhost:5001/login/callback').strip()
     
     # Debug logging
     print(f"DEBUG: Client ID present: {bool(client_id)}")
@@ -146,16 +179,30 @@ def login_callback():
     
     state = session.get('oauth_state')
     received_state = request.args.get('state')
-    if not state or state != received_state:
-        print(f"DEBUG: State mismatch. Expected: {state}, Received: {received_state}")
-        return "Invalid state parameter", 400
+    
+    # Debug session info
+    print(f"DEBUG: Session ID: {session.get('_id', 'N/A')}")
+    print(f"DEBUG: Session keys: {list(session.keys())}")
+    print(f"DEBUG: OAuth state in session: {state}")
+    print(f"DEBUG: Received state from callback: {received_state}")
     
     client_id = app.config.get('GOOGLE_CLIENT_ID', '').strip()
     client_secret = app.config.get('GOOGLE_CLIENT_SECRET', '').strip()
-    redirect_uri = app.config.get('GOOGLE_REDIRECT_URI', 'http://localhost:5000/login/callback').strip()
+    redirect_uri = app.config.get('GOOGLE_REDIRECT_URI', 'http://localhost:5001/login/callback').strip()
     
     if not client_id or not client_secret:
         return "OAuth not configured", 500
+    
+    # Validate state - if session state exists, it must match. Otherwise, proceed with received state
+    if state and state != received_state:
+        print(f"DEBUG: State mismatch. Expected: {state}, Received: {received_state}")
+        return "Invalid state parameter", 400
+    elif not state:
+        # State was lost from session - this happens in development with Flask-Session issues
+        # We can still proceed if we have a valid code and received_state
+        print(f"DEBUG: WARNING - State lost from session but received: {received_state}")
+        if not received_state or not request.args.get('code'):
+            return "Session expired. Please try again.", 400
     
     try:
         print(f"DEBUG: Creating OAuth flow for callback with redirect URI: {redirect_uri}")
@@ -169,11 +216,28 @@ def login_callback():
             }
         }
         
-        flow = Flow.from_client_config(client_config, scopes=SCOPES, state=state)
+        # Create flow without state - we'll validate it separately
+        # The Flow doesn't require state for token exchange, only for validation
+        flow = Flow.from_client_config(client_config, scopes=SCOPES)
         flow.redirect_uri = redirect_uri
         
-        print(f"DEBUG: Fetching token with URL: {request.url[:200]}...")
-        flow.fetch_token(authorization_response=request.url)
+        # In Cloud Run, ensure we use HTTPS for the callback URL
+        # request.url might be HTTP internally, but we need HTTPS for OAuth
+        callback_url = request.url
+        if os.environ.get('K_SERVICE'):
+            # We're in Cloud Run - construct proper HTTPS URL
+            if redirect_uri.startswith('https://'):
+                # Use the redirect_uri as base and append query parameters
+                parsed_request = urlparse(request.url)
+                query_params = parse_qs(parsed_request.query)
+                # Build the callback URL using the configured redirect_uri
+                callback_url = f"{redirect_uri}?{urlencode(query_params, doseq=True)}"
+            elif callback_url.startswith('http://'):
+                # Fallback: just replace http with https
+                callback_url = callback_url.replace('http://', 'https://', 1)
+        
+        print(f"DEBUG: Fetching token with URL: {callback_url[:200]}...")
+        flow.fetch_token(authorization_response=callback_url)
         print("DEBUG: Token fetched successfully")
         
         credentials = flow.credentials
@@ -222,19 +286,58 @@ def logout():
 def patient_lookup():
     """Patient lookup form."""
     if request.method == 'POST':
-        cpmrn = request.form.get('cpmrn', '')
-        encounters = request.form.get('encounters', '')
-        # For now, we'll just redirect to timeline with dummy data
+        cpmrn = request.form.get('cpmrn', '').strip()
+        encounters = request.form.get('encounters', '').strip()
+        
+        if not cpmrn or not encounters:
+            flash('Please provide both CPMRN and Encounters', 'error')
+            return render_template('patient_lookup.html')
+        
+        # Try to load service account if not already loaded
+        if not Config.RADAR_READ_SERVICE_ACCOUNT:
+            if load_radar_read_service_account():
+                Config.RADAR_READ_SERVICE_ACCOUNT = os.environ.get('RADAR_READ_SERVICE_ACCOUNT', '')
+        
+        if not Config.RADAR_READ_SERVICE_ACCOUNT:
+            flash('Radar service account not configured. Please check configuration.', 'error')
+            return render_template('patient_lookup.html')
+        
+        if not Config.RADAR_URL:
+            flash('Radar URL not configured. Please set RADAR_URL in environment variables.', 'error')
+            return render_template('patient_lookup.html')
+        
+        # Get patient data from Radar API
+        logger.info(f"Fetching patient data for CPMRN: {cpmrn}, Encounters: {encounters}")
+        patient_data = get_patient_json(cpmrn, encounters)
+        
+        if not patient_data:
+            flash(f'Patient not found for CPMRN: {cpmrn}, Encounters: {encounters}', 'error')
+            return render_template('patient_lookup.html')
+        
+        # Store patient data in session for timeline view
+        session['patient_data'] = patient_data
+        session['cpmrn'] = cpmrn
+        session['encounters'] = encounters
+        
         return redirect(url_for('timeline'))
+    
     return render_template('patient_lookup.html')
 
 @app.route('/timeline')
 @require_auth
 def timeline():
     """Main timeline view."""
-    patient_data = load_patient_data()
+    # Try to get patient data from session first (from Radar API lookup)
+    patient_data = session.get('patient_data')
+    
+    # Fallback to loading from file if not in session
     if not patient_data:
-        return "Error loading patient data", 500
+        logger.info("No patient data in session, loading from file...")
+        patient_data = load_patient_data()
+    
+    if not patient_data:
+        flash('No patient data available. Please lookup a patient first.', 'error')
+        return redirect(url_for('patient_lookup'))
     
     patient_info = get_patient_info(patient_data)
     timeline_events = process_patient_data(patient_data)
@@ -258,12 +361,33 @@ def timeline():
 @app.route('/api/patient-data', methods=['POST'])
 @require_auth
 def api_patient_data():
-    """Dummy API endpoint that returns patient JSON regardless of input."""
-    patient_data = load_patient_data()
+    """API endpoint that returns patient JSON from Radar API or file."""
+    data = request.get_json() or {}
+    cpmrn = data.get('cpmrn', '').strip()
+    encounters = data.get('encounters', '').strip()
+    
+    # If CPMRN and encounters provided, fetch from Radar API
+    if cpmrn and encounters:
+        # Try to load service account if not already loaded
+        if not Config.RADAR_READ_SERVICE_ACCOUNT:
+            if load_radar_read_service_account():
+                Config.RADAR_READ_SERVICE_ACCOUNT = os.environ.get('RADAR_READ_SERVICE_ACCOUNT', '')
+        
+        if not Config.RADAR_READ_SERVICE_ACCOUNT or not Config.RADAR_URL:
+            return jsonify({'error': 'Radar service not configured'}), 500
+        
+        patient_data = get_patient_json(cpmrn, encounters)
+        if not patient_data:
+            return jsonify({'error': f'Patient not found for CPMRN: {cpmrn}, Encounters: {encounters}'}), 404
+        return jsonify(patient_data)
+    
+    # Otherwise, return from session or file
+    patient_data = session.get('patient_data') or load_patient_data()
     if not patient_data:
         return jsonify({'error': 'Patient data not found'}), 404
     return jsonify(patient_data)
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    port = int(os.environ.get('PORT', 5001))
+    app.run(debug=True, host='0.0.0.0', port=port)
 

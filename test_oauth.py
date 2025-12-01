@@ -8,7 +8,7 @@ load_dotenv()
 
 CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID', '').strip()
 CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET', '').strip()
-REDIRECT_URI = os.getenv('GOOGLE_REDIRECT_URI', 'http://localhost:5000/login/callback').strip()
+REDIRECT_URI = os.getenv('GOOGLE_REDIRECT_URI', 'http://localhost:5001/login/callback').strip()
 
 print("=" * 60)
 print("OAuth Configuration Test")

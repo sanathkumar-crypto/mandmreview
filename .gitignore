@@ -30,3 +30,4 @@ sanaths-projects-*.json
 # Session files contain sensitive tokens
 flask_session/
 
+radar_service_account.json

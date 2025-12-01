@@ -1,0 +1,54 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info
+dist
+build
+.venv
+venv
+env
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Environment files
+.env
+.env.local
+
+# Documentation
+*.md
+CREDENTIALS_SETUP.md
+OAUTH_TROUBLESHOOTING.md
+README.md
+
+# Test files
+test_*.py
+*_test.py
+
+# Deployment files (not needed in container)
+cloudbuild.yaml
+deploy.sh
+setup_env.sh
+
+# Service account file (handled via secrets)
+radar_service_account.json
+
+# Patient data (not needed in production)
+pat_jsons.json
+
+# React/TypeScript files (not used in Flask app)
+app.tsx
+

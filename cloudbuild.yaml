@@ -1,0 +1,39 @@
+steps:
+  # Build the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/mnm:latest', '.']
+  
+  # Push the container image to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/mnm:latest']
+  
+  # Deploy container image to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'mnm'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/mnm:latest'
+      - '--region'
+      - '${_REGION}'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--memory'
+      - '1Gi'
+      - '--cpu'
+      - '1'
+      - '--timeout'
+      - '900'
+      - '--max-instances'
+      - '10'
+      - '--set-secrets'
+      - 'GEMINI_API_KEY=GEMINI_API_KEY:latest,RADAR_URL=RADAR_READ_URL:latest,RADAR_READ_SERVICE_ACCOUNT=RADAR_READ_SERVICE_ACCOUNT:latest,MNM_SECRET_KEY=MNM_SECRET_KEY:latest'
+
+images:
+  - 'gcr.io/$PROJECT_ID/mnm:latest'
+
+substitutions:
+  _REGION: 'asia-south1'

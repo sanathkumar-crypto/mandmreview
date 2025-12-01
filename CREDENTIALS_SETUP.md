@@ -67,7 +67,7 @@ GEMINI_MODEL = 'gemini-1.5-flash'  # or 'gemini-1.5-pro'
    - Scopes: email, profile, openid
 6. Application type: Web application
 7. Authorized redirect URIs: 
-   - `http://localhost:5000/login/callback` (for local development)
+   - `http://localhost:5001/login/callback` (for local development)
    - `https://yourdomain.com/login/callback` (for production)
 8. Copy the **Client ID** and **Client Secret**
 
@@ -78,14 +78,14 @@ Add to your `.env` file:
 ```
 GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=your-client-secret
-GOOGLE_REDIRECT_URI=http://localhost:5000/login/callback
+GOOGLE_REDIRECT_URI=http://localhost:5001/login/callback
 ```
 
 **Alternative: Environment Variables**
 ```bash
 export GOOGLE_CLIENT_ID="your-client-id.apps.googleusercontent.com"
 export GOOGLE_CLIENT_SECRET="your-client-secret"
-export GOOGLE_REDIRECT_URI="http://localhost:5000/login/callback"
+export GOOGLE_REDIRECT_URI="http://localhost:5001/login/callback"
 ```
 
 ### Important Notes:
@@ -134,7 +134,7 @@ GEMINI_MODEL=gemini-2.0-flash-exp
 # Google OAuth (Optional)
 GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=your-client-secret-here
-GOOGLE_REDIRECT_URI=http://localhost:5000/login/callback
+GOOGLE_REDIRECT_URI=http://localhost:5001/login/callback
 ```
 
 **Important:** The `.env` file is automatically ignored by git, so your credentials won't be committed.

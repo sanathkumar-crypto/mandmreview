@@ -32,7 +32,7 @@
 3. Click to edit it
 4. Under "Authorized redirect URIs", make sure you have EXACTLY:
    ```
-   http://localhost:5000/login/callback
+   http://localhost:5001/login/callback
    ```
    - No trailing slash
    - Must be `http://` not `https://` for localhost
@@ -55,7 +55,7 @@
    - Click "Create Credentials" > "OAuth 2.0 Client ID"
    - Application type: Web application
    - Name: "M&M Review Web Client"
-   - Authorized redirect URIs: `http://localhost:5000/login/callback`
+   - Authorized redirect URIs: `http://localhost:5001/login/callback`
    - Copy the new Client ID and Secret to `.env`
 
 ### 5. Testing Mode Restrictions
