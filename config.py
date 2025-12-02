@@ -8,14 +8,16 @@ load_dotenv()
 def load_mnm_secret_key():
     """
     Load configuration from MNM_SECRET_KEY JSON secret (for Cloud Run)
-    or fall back to individual environment variables (for local development)
+    or from local JSON file (for local development with python app.py)
+    or fall back to individual environment variables
     """
+    # First, try to load from environment variable (Cloud Run)
     mnm_secret = os.environ.get('MNM_SECRET_KEY', '')
     if mnm_secret:
         try:
-            # Parse JSON secret
+            # Parse JSON secret from environment variable
             secret_data = json.loads(mnm_secret)
-            print(f"DEBUG: Successfully parsed MNM_SECRET_KEY JSON")
+            print(f"DEBUG: Successfully parsed MNM_SECRET_KEY from environment variable")
             print(f"DEBUG: Found keys: {list(secret_data.keys())}")
             return {
                 'SECRET_KEY': secret_data.get('SECRET_KEY', ''),
@@ -28,8 +30,28 @@ def load_mnm_secret_key():
             print(f"ERROR: Failed to parse MNM_SECRET_KEY as JSON: {e}")
             print(f"DEBUG: MNM_SECRET_KEY value (first 100 chars): {mnm_secret[:100]}")
             return None
-    else:
-        print("DEBUG: MNM_SECRET_KEY environment variable not set, using individual env vars")
+    
+    # For local development, try to load from local JSON file
+    # Only do this when NOT in Cloud Run (when K_SERVICE is not set)
+    if not os.environ.get('K_SERVICE'):
+        local_json_file = os.path.join(os.path.dirname(__file__), 'mnm_secret_key.json')
+        if os.path.exists(local_json_file):
+            try:
+                with open(local_json_file, 'r', encoding='utf-8') as f:
+                    secret_data = json.load(f)
+                    print(f"DEBUG: Successfully loaded MNM_SECRET_KEY from local JSON file: {local_json_file}")
+                    print(f"DEBUG: Found keys: {list(secret_data.keys())}")
+                    return {
+                        'SECRET_KEY': secret_data.get('SECRET_KEY', ''),
+                        'GOOGLE_CLIENT_ID': secret_data.get('GOOGLE_CLIENT_ID', ''),
+                        'GOOGLE_CLIENT_SECRET': secret_data.get('GOOGLE_CLIENT_SECRET', ''),
+                        'GOOGLE_REDIRECT_URI': secret_data.get('GOOGLE_REDIRECT_URI', '')
+                    }
+            except (json.JSONDecodeError, IOError) as e:
+                print(f"WARNING: Failed to load local JSON file {local_json_file}: {e}")
+                print("DEBUG: Falling back to individual env vars")
+    
+    print("DEBUG: MNM_SECRET_KEY not found in environment or local file, using individual env vars")
     return None
 
 # Try to load from JSON secret first, then fall back to individual env vars

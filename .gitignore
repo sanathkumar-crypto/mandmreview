@@ -24,6 +24,7 @@ flask_session/
 # Sensitive files - do not commit
 *-*.json
 sanaths-projects-*.json
+mnm_secret_key.json
 *.pem
 *.key
 

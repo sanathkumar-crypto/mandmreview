@@ -74,6 +74,9 @@ def load_patient_data():
 
 def is_authenticated():
     """Check if user is authenticated."""
+    # In local development (not Cloud Run), bypass OAuth
+    if not is_cloud_run:
+        return True
     return 'user_email' in session and session.get('user_email', '').endswith('@cloudphysician.net')
 
 def require_auth(f):
@@ -96,6 +99,13 @@ def index():
 def login():
     """Initiate Google OAuth login."""
     if is_authenticated():
+        return redirect(url_for('patient_lookup'))
+    
+    # In local development (not Cloud Run), bypass OAuth and auto-authenticate
+    if not is_cloud_run:
+        logger.info("Local development mode: bypassing OAuth")
+        session['user_email'] = 'dev@cloudphysician.net'
+        session['user_name'] = 'Development User'
         return redirect(url_for('patient_lookup'))
     
     # Ensure OAUTHLIB_INSECURE_TRANSPORT is set for localhost

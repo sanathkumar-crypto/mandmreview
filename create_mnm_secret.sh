@@ -1,11 +1,14 @@
 #!/bin/bash
 
 # Script to create MNM_SECRET_KEY from .env file
-# This reads the values from .env and creates a JSON secret for GCP Secret Manager
+# This reads the values from .env and creates:
+# 1. A local JSON file (mnm_secret_key.json) for local development
+# 2. Optionally uploads to GCP Secret Manager (if gcloud is configured)
 
 set -e
 
 PROJECT_ID=${PROJECT_ID:-"patientview-9uxml"}
+LOCAL_JSON_FILE="mnm_secret_key.json"
 
 # Check if .env file exists
 if [ ! -f ".env" ]; then
@@ -27,25 +30,39 @@ SECRET_JSON=$(cat <<EOF
 EOF
 )
 
-# Create temporary file
-TEMP_FILE=$(mktemp)
-echo "$SECRET_JSON" > "$TEMP_FILE"
-
-echo "Created JSON secret file:"
-cat "$TEMP_FILE"
+# Save to local JSON file for local development
+echo "$SECRET_JSON" > "$LOCAL_JSON_FILE"
+echo "✅ Created local JSON file: $LOCAL_JSON_FILE"
 echo ""
-echo "Creating secret in GCP Secret Manager..."
+echo "JSON content:"
+cat "$LOCAL_JSON_FILE"
+echo ""
+echo ""
 
-# Create or update the secret
-if gcloud secrets describe MNM_SECRET_KEY --project="$PROJECT_ID" &>/dev/null; then
-    echo "Secret exists, updating..."
-    echo -n "$SECRET_JSON" | gcloud secrets versions add MNM_SECRET_KEY --data-file=- --project="$PROJECT_ID"
+# Optionally upload to GCP Secret Manager (if gcloud is available)
+if command -v gcloud &> /dev/null; then
+    echo "gcloud found. Uploading to GCP Secret Manager..."
+    
+    # Create temporary file for gcloud
+    TEMP_FILE=$(mktemp)
+    echo "$SECRET_JSON" > "$TEMP_FILE"
+    
+    # Create or update the secret
+    if gcloud secrets describe MNM_SECRET_KEY --project="$PROJECT_ID" &>/dev/null 2>&1; then
+        echo "Secret exists, updating..."
+        echo -n "$SECRET_JSON" | gcloud secrets versions add MNM_SECRET_KEY --data-file=- --project="$PROJECT_ID"
+    else
+        echo "Creating new secret..."
+        echo -n "$SECRET_JSON" | gcloud secrets create MNM_SECRET_KEY --data-file=- --project="$PROJECT_ID"
+    fi
+    
+    # Clean up
+    rm "$TEMP_FILE"
+    echo "✅ Secret created/updated in GCP Secret Manager!"
 else
-    echo "Creating new secret..."
-    echo -n "$SECRET_JSON" | gcloud secrets create MNM_SECRET_KEY --data-file=- --project="$PROJECT_ID"
+    echo "⚠️  gcloud not found. Skipping GCP Secret Manager upload."
+    echo "   Local JSON file created successfully for local development."
 fi
 
-# Clean up
-rm "$TEMP_FILE"
-
-echo "✅ Secret created/updated successfully!"
+echo ""
+echo "✅ Done! Local JSON file is ready for use with 'python app.py'"
