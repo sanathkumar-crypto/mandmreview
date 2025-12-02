@@ -295,6 +295,90 @@ def format_note_content(content_dict: Dict[str, str]) -> str:
         note_text_parts.append(f"{display_name}: {value}")
     return ' | '.join(note_text_parts)
 
+def extract_content_after_date(summary_text: str, note_date: datetime) -> str:
+    """
+    For physician progress notes, find the date in the summary that matches the note's date
+    and return only the content after that date.
+    
+    Args:
+        summary_text: The summary text to search
+        note_date: The datetime of the note creation
+        
+    Returns:
+        Content after the matching date, or original text if date not found
+    """
+    if not summary_text or not note_date:
+        return summary_text
+    
+    # Generate various date format patterns to search for
+    # Format: DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY, etc.
+    day = note_date.day
+    month = note_date.month
+    year = note_date.year
+    
+    # Try different date formats
+    date_patterns = [
+        f"{day:02d}/{month:02d}/{year}",  # 03/10/2025
+        f"{day}/{month}/{year}",  # 3/10/2025
+        f"{day:02d}-{month:02d}-{year}",  # 03-10-2025
+        f"{day}-{month}-{year}",  # 3-10-2025
+        f"{day:02d}.{month:02d}.{year}",  # 03.10.2025
+        f"{day}.{month}.{year}",  # 3.10.2025
+        f"{day:02d}/{month:02d}/{year % 100:02d}",  # 03/10/25
+        f"{day}/{month}/{year % 100}",  # 3/10/25
+    ]
+    
+    # Also try with month/day swapped (US format)
+    date_patterns.extend([
+        f"{month:02d}/{day:02d}/{year}",  # 10/03/2025
+        f"{month}/{day}/{year}",  # 10/3/2025
+        f"{month:02d}-{day:02d}-{year}",  # 10-03-2025
+        f"{month}-{day}-{year}",  # 10-3-2025
+    ])
+    
+    # Search for each date pattern
+    for date_pattern in date_patterns:
+        # Look for date followed by colon or space
+        pattern_with_colon = f"{date_pattern}:"
+        pattern_with_space = f"{date_pattern} "
+        
+        # Try to find date with colon first (most common format)
+        idx_colon = summary_text.find(pattern_with_colon)
+        if idx_colon >= 0:
+            # Found date with colon, extract content after it
+            content_after = summary_text[idx_colon + len(pattern_with_colon):].strip()
+            if content_after:
+                return content_after
+        
+        # Try date with space
+        idx_space = summary_text.find(pattern_with_space)
+        if idx_space >= 0:
+            # Found date with space, extract content after it
+            content_after = summary_text[idx_space + len(pattern_with_space):].strip()
+            if content_after:
+                return content_after
+    
+    # If no date pattern found, return original text
+    return summary_text
+
+def is_physician_note(note: Dict[str, Any]) -> bool:
+    """Check if note is by a physician."""
+    author = note.get('author', {})
+    if isinstance(author, dict):
+        role = author.get('role', '').lower()
+        # Check if role contains 'physician' or 'doctor' or similar
+        if 'physician' in role or 'doctor' in role or role == 'physician':
+            return True
+    
+    # Also check noteType
+    note_type = note.get('noteType', '').lower()
+    if 'progress' in note_type or 'admission' in note_type:
+        # Check if it's likely a physician note (not nursing)
+        if 'nursing' not in note_type:
+            return True
+    
+    return False
+
 def extract_notes(patient_data: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Extract notes from patient data with role-based diffing."""
     events = []
@@ -361,21 +445,37 @@ def extract_notes(patient_data: Dict[str, Any]) -> List[Dict[str, Any]]:
             if not current_content:
                 continue
             
-            # For first note of this role, show full content
-            # For subsequent notes, show only new content
-            if idx == 0:
-                # First note - show everything
+            # Special handling for physician progress notes
+            if is_physician_note(note):
+                # For physician notes, check if Summary section has a date matching note timestamp
+                if 'Summary' in current_content:
+                    summary_text = current_content['Summary']
+                    # Extract content after the date in summary
+                    summary_after_date = extract_content_after_date(summary_text, timestamp)
+                    if summary_after_date != summary_text:
+                        # Date was found, update summary with content after date
+                        current_content['Summary'] = summary_after_date
+                
+                # For physician notes, show full content (date-based filtering already applied)
                 display_content = current_content
                 previous_content = current_content.copy()
             else:
-                # Subsequent note - show only new content
-                new_content = find_new_content(current_content, previous_content)
-                if not new_content:
-                    # No new content, skip this note
-                    continue
-                display_content = new_content
-                # Update previous content for next comparison
-                previous_content = current_content.copy()
+                # For non-physician notes, use role-based diffing
+                # For first note of this role, show full content
+                # For subsequent notes, show only new content
+                if idx == 0:
+                    # First note - show everything
+                    display_content = current_content
+                    previous_content = current_content.copy()
+                else:
+                    # Subsequent note - show only new content
+                    new_content = find_new_content(current_content, previous_content)
+                    if not new_content:
+                        # No new content, skip this note
+                        continue
+                    display_content = new_content
+                    # Update previous content for next comparison
+                    previous_content = current_content.copy()
             
             # Format and add event
             note_text = format_note_content(display_content)
