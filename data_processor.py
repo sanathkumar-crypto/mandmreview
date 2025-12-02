@@ -38,6 +38,108 @@ def parse_html_content(html_content: str) -> str:
     text = ' '.join(text.split())
     return text
 
+def is_abnormal_vital(vital_key: str, vital_value: str) -> bool:
+    """Check if a vital sign value is abnormal."""
+    if not vital_value:
+        return False
+    
+    try:
+        # Extract numeric value from string (handle units like "98.6°F", "120/80", etc.)
+        numeric_value = None
+        
+        # Handle temperature with units
+        if vital_key == 'temp':
+            # Extract number from string like "98.6°F" or "37.2°C"
+            temp_match = re.search(r'([\d.]+)', str(vital_value))
+            if temp_match:
+                temp_val = float(temp_match.group(1))
+                # Check if Fahrenheit or Celsius
+                if '°F' in str(vital_value) or 'F' in str(vital_value):
+                    # Normal: 97-99°F
+                    return temp_val < 97 or temp_val > 99
+                elif '°C' in str(vital_value) or 'C' in str(vital_value):
+                    # Normal: 36.1-37.2°C
+                    return temp_val < 36.1 or temp_val > 37.2
+                else:
+                    # Assume Fahrenheit if no unit
+                    return temp_val < 97 or temp_val > 99
+        
+        # Handle BP (format: "120/80" or "120")
+        elif vital_key == 'bp':
+            bp_match = re.search(r'(\d+)(?:/(\d+))?', str(vital_value))
+            if bp_match:
+                systolic = int(bp_match.group(1))
+                diastolic = int(bp_match.group(2)) if bp_match.group(2) else None
+                # Normal: Systolic 90-120, Diastolic 60-80
+                if diastolic:
+                    return systolic < 90 or systolic > 120 or diastolic < 60 or diastolic > 80
+                else:
+                    return systolic < 90 or systolic > 120
+        
+        # Handle numeric vitals
+        else:
+            # Extract first number from string
+            num_match = re.search(r'([\d.]+)', str(vital_value))
+            if num_match:
+                numeric_value = float(num_match.group(1))
+                
+                if vital_key == 'hr':
+                    # Normal: 60-100 bpm
+                    return numeric_value < 60 or numeric_value > 100
+                elif vital_key == 'rr':
+                    # Normal: 12-20 breaths/min
+                    return numeric_value < 12 or numeric_value > 20
+                elif vital_key == 'map':
+                    # Normal: 70-100 mmHg
+                    return numeric_value < 70 or numeric_value > 100
+                elif vital_key == 'cvp':
+                    # Normal: 2-8 mmHg
+                    return numeric_value < 2 or numeric_value > 8
+                elif vital_key == 'spo2':
+                    # Normal: >95%
+                    return numeric_value < 95
+                elif vital_key == 'gcs':
+                    # Normal: 15, abnormal: <15
+                    return numeric_value < 15
+                elif vital_key == 'avpu':
+                    # Normal: "A" (Alert), abnormal: others
+                    return str(vital_value).upper() != 'A'
+                # fio2 and position don't have normal/abnormal ranges
+                elif vital_key in ['fio2', 'position']:
+                    return False
+        
+        return False
+    except (ValueError, AttributeError):
+        # If we can't parse, assume it's not clearly abnormal
+        return False
+
+def is_abnormal_lab_result(lab_result: str) -> bool:
+    """Check if a lab result string indicates an abnormal value."""
+    if not lab_result:
+        return False
+    
+    lab_lower = lab_result.lower()
+    
+    # Check for common abnormal indicators
+    # Look for flags like "H" (high), "L" (low), "H*", "L*", "↑", "↓", "HIGH", "LOW"
+    abnormal_flags = [' h ', ' h*', ' l ', ' l*', '↑', '↓', ' high', ' low', 
+                      '(h)', '(l)', '[h]', '[l]', 'critical', 'abnormal']
+    
+    for flag in abnormal_flags:
+        if flag in lab_lower:
+            return True
+    
+    # Check for patterns like "value H" or "value L" at the end
+    if re.search(r'[\d.]+[ \t]+[HL]\b', lab_lower):
+        return True
+    
+    # Check for patterns like "value (H)" or "value (L)"
+    if re.search(r'[\d.]+[ \t]*\([HL]\)', lab_lower):
+        return True
+    
+    # If no clear abnormal indicator, assume normal
+    return False
+
 def extract_notes(patient_data: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Extract notes from patient data."""
     events = []
@@ -249,14 +351,17 @@ def extract_lab_reports(patient_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         if not timestamp:
             continue
         
-        # Extract attributes
+        # Extract attributes, only keeping abnormal results
         attributes = doc.get('attributes', {})
         attr_text = []
         for attr_name, attr_data in attributes.items():
             if isinstance(attr_data, dict):
                 value = attr_data.get('value')
                 if value is not None and value != '':
-                    attr_text.append(f"{attr_name}: {value}")
+                    result_str = f"{attr_name}: {value}"
+                    # Only include if abnormal
+                    if is_abnormal_lab_result(result_str):
+                        attr_text.append(result_str)
         
         reported_at = doc.get('reportedAt')
         reported_at_str = ''
@@ -267,24 +372,26 @@ def extract_lab_reports(patient_data: Dict[str, Any]) -> List[Dict[str, Any]]:
             else:
                 reported_at_str = str(reported_at)
         
-        # Extract email from verified field
-        verified = doc.get('verified', {})
-        email = ''
-        if isinstance(verified, dict):
-            verified_by = verified.get('by', {})
-            if isinstance(verified_by, dict):
-                email = verified_by.get('email', '')
-        
-        events.append({
-            'timestamp': timestamp,
-            'type': 'lab',
-            'data': {
-                'test': name,
-                'results': attr_text,
-                'reportedAt': reported_at_str,
-                'email': email
-            }
-        })
+        # Only add lab event if there are abnormal results
+        if attr_text:
+            # Extract email from verified field
+            verified = doc.get('verified', {})
+            email = ''
+            if isinstance(verified, dict):
+                verified_by = verified.get('by', {})
+                if isinstance(verified_by, dict):
+                    email = verified_by.get('email', '')
+            
+            events.append({
+                'timestamp': timestamp,
+                'type': 'lab',
+                'data': {
+                    'test': name,
+                    'results': attr_text,
+                    'reportedAt': reported_at_str,
+                    'email': email
+                }
+            })
     
     return events
 
@@ -302,7 +409,7 @@ def extract_vitals(patient_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         if not timestamp:
             continue
         
-        # Extract non-null vital fields
+        # Extract non-null vital fields, only keeping abnormal ones
         vital_data = {}
         vital_fields = [
             'daysTemperature', 'daysTemperatureUnit', 'daysHR', 'daysRR', 
@@ -315,29 +422,48 @@ def extract_vitals(patient_data: Dict[str, Any]) -> List[Dict[str, Any]]:
             if value is not None and value != '':
                 # Format field name (remove 'days' prefix and convert to readable)
                 field_name = field.replace('days', '')
+                vital_key = None
+                vital_value_str = None
+                
                 if field_name == 'Temperature':
                     unit = vital.get('daysTemperatureUnit', '')
-                    vital_data['temp'] = f"{value}{unit}" if unit else str(value)
+                    vital_value_str = f"{value}{unit}" if unit else str(value)
+                    vital_key = 'temp'
                 elif field_name == 'HR':
-                    vital_data['hr'] = str(value)
+                    vital_value_str = str(value)
+                    vital_key = 'hr'
                 elif field_name == 'RR':
-                    vital_data['rr'] = str(value)
+                    vital_value_str = str(value)
+                    vital_key = 'rr'
                 elif field_name == 'BP':
-                    vital_data['bp'] = str(value)
+                    vital_value_str = str(value)
+                    vital_key = 'bp'
                 elif field_name == 'MAP':
-                    vital_data['map'] = str(value)
+                    vital_value_str = str(value)
+                    vital_key = 'map'
                 elif field_name == 'CVP':
-                    vital_data['cvp'] = str(value)
+                    vital_value_str = str(value)
+                    vital_key = 'cvp'
                 elif field_name == 'SpO2':
-                    vital_data['spo2'] = str(value)
+                    vital_value_str = str(value)
+                    vital_key = 'spo2'
                 elif field_name == 'FiO2':
-                    vital_data['fio2'] = str(value)
+                    vital_value_str = str(value)
+                    vital_key = 'fio2'
                 elif field_name == 'GCS':
-                    vital_data['gcs'] = str(value)
+                    vital_value_str = str(value)
+                    vital_key = 'gcs'
                 elif field_name == 'AVPU':
-                    vital_data['avpu'] = str(value)
+                    vital_value_str = str(value)
+                    vital_key = 'avpu'
                 elif field_name == 'PatPosition':
-                    vital_data['position'] = str(value)
+                    vital_value_str = str(value)
+                    vital_key = 'position'
+                
+                # Only include if abnormal (exclude fio2 and position as they don't have normal/abnormal ranges)
+                if vital_key and vital_value_str:
+                    if vital_key not in ['fio2', 'position'] and is_abnormal_vital(vital_key, vital_value_str):
+                        vital_data[vital_key] = vital_value_str
         
         if vital_data:
             # Extract email from verifiedBy field

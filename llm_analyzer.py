@@ -54,10 +54,13 @@ def format_event_for_llm(event: Dict[str, Any]) -> str:
         action = data.get('action', 'created')
         return f"[{timestamp}] ORDER {action.upper()}: {data.get('investigation', '')}"
     elif event_type == 'lab':
+        # Lab results are already filtered to only abnormal values in data_processor
         results = ', '.join(data.get('results', [])[:3])
         return f"[{timestamp}] LAB: {data.get('test', '')} - {results}"
     elif event_type == 'vital':
-        vital_str = ', '.join([f"{k}: {v}" for k, v in data.items() if v])
+        # Vitals are already filtered to only abnormal values in data_processor
+        # Exclude email from display
+        vital_str = ', '.join([f"{k}: {v}" for k, v in data.items() if v and k != 'email'])
         return f"[{timestamp}] VITALS: {vital_str}"
     elif event_type == 'io':
         io_str = []

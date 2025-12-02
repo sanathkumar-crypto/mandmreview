@@ -7,6 +7,7 @@ from urllib.parse import urlparse, parse_qs, urlencode
 import json
 import os
 import logging
+from dotenv import load_dotenv
 from config import Config
 from data_processor import process_patient_data, get_patient_info
 from llm_analyzer import analyze_timeline_summary, analyze_unaddressed_events
@@ -15,6 +16,9 @@ from radar_service import get_patient_json, load_radar_read_service_account
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Load environment variables
+load_dotenv()
 
 # Allow HTTP for localhost (required for local development)
 # WARNING: Only use this for local development, never in production!
@@ -25,6 +29,7 @@ if os.environ.get('K_SERVICE'):
 elif os.environ.get('FLASK_ENV') == 'development' or 'localhost' in os.environ.get('GOOGLE_REDIRECT_URI', ''):
     # Local development - allow HTTP
     os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
+    print("DEBUG: OAUTHLIB_INSECURE_TRANSPORT set to 1 for localhost development")
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -93,10 +98,14 @@ def login():
     if is_authenticated():
         return redirect(url_for('patient_lookup'))
     
+    # Ensure OAUTHLIB_INSECURE_TRANSPORT is set for localhost
+    redirect_uri = app.config.get('GOOGLE_REDIRECT_URI', 'http://localhost:5000/login/callback').strip()
+    if 'localhost' in redirect_uri or '127.0.0.1' in redirect_uri:
+        os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
+    
     # Check if we have OAuth credentials configured
     client_id = app.config.get('GOOGLE_CLIENT_ID', '').strip()
     client_secret = app.config.get('GOOGLE_CLIENT_SECRET', '').strip()
-    redirect_uri = app.config.get('GOOGLE_REDIRECT_URI', 'http://localhost:5001/login/callback').strip()
     
     # Debug logging
     print(f"DEBUG: Client ID present: {bool(client_id)}")
@@ -168,6 +177,11 @@ def login_callback():
         session['user_name'] = 'Development User'
         return redirect(url_for('patient_lookup'))
     
+    # Ensure OAUTHLIB_INSECURE_TRANSPORT is set for localhost
+    redirect_uri = app.config.get('GOOGLE_REDIRECT_URI', 'http://localhost:5000/login/callback').strip()
+    if 'localhost' in redirect_uri or '127.0.0.1' in redirect_uri:
+        os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
+    
     if 'error' in request.args:
         error = request.args.get('error')
         error_description = request.args.get('error_description', '')
@@ -188,7 +202,6 @@ def login_callback():
     
     client_id = app.config.get('GOOGLE_CLIENT_ID', '').strip()
     client_secret = app.config.get('GOOGLE_CLIENT_SECRET', '').strip()
-    redirect_uri = app.config.get('GOOGLE_REDIRECT_URI', 'http://localhost:5001/login/callback').strip()
     
     if not client_id or not client_secret:
         return "OAuth not configured", 500
@@ -280,6 +293,36 @@ def logout():
     """Logout user."""
     session.clear()
     return redirect(url_for('login'))
+
+@app.route('/debug/oauth')
+def debug_oauth():
+    """Debug endpoint to check OAuth configuration."""
+    import json
+    debug_info = {
+        'credentials_loaded': {
+            'client_id': bool(app.config.get('GOOGLE_CLIENT_ID')),
+            'client_secret': bool(app.config.get('GOOGLE_CLIENT_SECRET')),
+            'redirect_uri': app.config.get('GOOGLE_REDIRECT_URI', 'NOT SET')
+        },
+        'client_id_format': {
+            'ends_with_correct_suffix': app.config.get('GOOGLE_CLIENT_ID', '').endswith('.apps.googleusercontent.com') if app.config.get('GOOGLE_CLIENT_ID') else False,
+            'length': len(app.config.get('GOOGLE_CLIENT_ID', ''))
+        },
+        'client_secret_format': {
+            'starts_with_gocspx': app.config.get('GOOGLE_CLIENT_SECRET', '').startswith('GOCSPX-') if app.config.get('GOOGLE_CLIENT_SECRET') else False,
+            'length': len(app.config.get('GOOGLE_CLIENT_SECRET', ''))
+        },
+        'environment': {
+            'oauthlib_insecure_transport': os.environ.get('OAUTHLIB_INSECURE_TRANSPORT', 'NOT SET'),
+            'redirect_uri_contains_localhost': 'localhost' in app.config.get('GOOGLE_REDIRECT_URI', '')
+        },
+        'checklist': {
+            'redirect_uri_in_google_console': 'MANUAL CHECK REQUIRED: Go to https://console.cloud.google.com/apis/credentials and verify the redirect URI is added',
+            'oauth_consent_screen_configured': 'MANUAL CHECK REQUIRED: Go to https://console.cloud.google.com/apis/credentials/consent and verify it\'s configured',
+            'test_users_added': 'MANUAL CHECK REQUIRED: If using External user type, add test users in OAuth consent screen'
+        }
+    }
+    return jsonify(debug_info)
 
 @app.route('/patient-lookup', methods=['GET', 'POST'])
 @require_auth
