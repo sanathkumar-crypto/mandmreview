@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 from config import Config
 from data_processor import process_patient_data, get_patient_info
 from llm_analyzer import analyze_timeline_summary, analyze_unaddressed_events
-from radar_service import get_patient_json, load_radar_read_service_account
+from radar_service import get_patient_json, load_radar_read_service_account, get_user_role
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -106,6 +106,8 @@ def login():
         logger.info("Local development mode: bypassing OAuth")
         session['user_email'] = 'dev@cloudphysician.net'
         session['user_name'] = 'Development User'
+        # Set default role for development (can be overridden via env var)
+        session['user_role'] = os.environ.get('DEV_USER_ROLE', '')
         return redirect(url_for('patient_lookup'))
     
     # Ensure OAUTHLIB_INSECURE_TRANSPORT is set for localhost
@@ -185,6 +187,8 @@ def login_callback():
     if request.args.get('dev') == 'true':
         session['user_email'] = 'dev@cloudphysician.net'
         session['user_name'] = 'Development User'
+        # Set default role for development (can be overridden via env var)
+        session['user_role'] = os.environ.get('DEV_USER_ROLE', '')
         return redirect(url_for('patient_lookup'))
     
     # Ensure OAUTHLIB_INSECURE_TRANSPORT is set for localhost
@@ -287,6 +291,17 @@ def login_callback():
         session['user_email'] = email
         session['user_name'] = user_info.get('name', email)
         session.pop('oauth_state', None)
+        
+        # Get user role from Radar API
+        try:
+            user_role = get_user_role(email)
+            if user_role:
+                session['user_role'] = user_role
+                logger.info(f"User role retrieved: {user_role}")
+            else:
+                logger.warning(f"Could not retrieve user role for {email}")
+        except Exception as e:
+            logger.error(f"Error retrieving user role: {e}")
         
         return redirect(url_for('patient_lookup'))
     except Exception as e:
@@ -417,9 +432,12 @@ def timeline():
         if hasattr(event['timestamp'], 'isoformat'):
             event['timestamp'] = event['timestamp'].isoformat()
     
-    # Generate LLM analyses
-    timeline_summary = analyze_timeline_summary(timeline_events)
-    unaddressed_analysis = analyze_unaddressed_events(timeline_events)
+    # Generate LLM analyses (only if there are events to analyze)
+    timeline_summary = None
+    unaddressed_analysis = None
+    if timeline_events:
+        timeline_summary = analyze_timeline_summary(timeline_events)
+        unaddressed_analysis = analyze_unaddressed_events(timeline_events)
     
     # Patient data exists if we got here (otherwise would have redirected)
     return render_template('timeline.html', 

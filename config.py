@@ -23,7 +23,8 @@ def load_mnm_secret_key():
                 'SECRET_KEY': secret_data.get('SECRET_KEY', ''),
                 'GOOGLE_CLIENT_ID': secret_data.get('GOOGLE_CLIENT_ID', ''),
                 'GOOGLE_CLIENT_SECRET': secret_data.get('GOOGLE_CLIENT_SECRET', ''),
-                'GOOGLE_REDIRECT_URI': secret_data.get('GOOGLE_REDIRECT_URI', '')
+                'GOOGLE_REDIRECT_URI': secret_data.get('GOOGLE_REDIRECT_URI', ''),
+                'GEMINI_API_KEY': secret_data.get('GEMINI_API_KEY', '')
             }
         except (json.JSONDecodeError, TypeError) as e:
             # If JSON parsing fails, fall back to individual env vars
@@ -45,7 +46,8 @@ def load_mnm_secret_key():
                         'SECRET_KEY': secret_data.get('SECRET_KEY', ''),
                         'GOOGLE_CLIENT_ID': secret_data.get('GOOGLE_CLIENT_ID', ''),
                         'GOOGLE_CLIENT_SECRET': secret_data.get('GOOGLE_CLIENT_SECRET', ''),
-                        'GOOGLE_REDIRECT_URI': secret_data.get('GOOGLE_REDIRECT_URI', '')
+                        'GOOGLE_REDIRECT_URI': secret_data.get('GOOGLE_REDIRECT_URI', ''),
+                        'GEMINI_API_KEY': secret_data.get('GEMINI_API_KEY', '')
                     }
             except (json.JSONDecodeError, IOError) as e:
                 print(f"WARNING: Failed to load local JSON file {local_json_file}: {e}")
@@ -71,13 +73,16 @@ class Config:
             if service_url:
                 default_redirect = f"{service_url}/login/callback"
         GOOGLE_REDIRECT_URI = _secret_config['GOOGLE_REDIRECT_URI'] or default_redirect or 'http://localhost:5001/login/callback'
-        print(f"DEBUG: Loaded config from MNM_SECRET_KEY - Client ID present: {bool(GOOGLE_CLIENT_ID)}, Redirect URI: {GOOGLE_REDIRECT_URI}")
+        # Load GEMINI_API_KEY from secret if available, otherwise from env
+        GEMINI_API_KEY = _secret_config.get('GEMINI_API_KEY', '') or os.environ.get('GEMINI_API_KEY', '')
+        print(f"DEBUG: Loaded config from MNM_SECRET_KEY - Client ID present: {bool(GOOGLE_CLIENT_ID)}, Redirect URI: {GOOGLE_REDIRECT_URI}, Gemini API Key present: {bool(GEMINI_API_KEY)}")
     else:
         SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-secret-key-change-in-production'
         GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '')
         GOOGLE_CLIENT_SECRET = os.environ.get('GOOGLE_CLIENT_SECRET', '')
         GOOGLE_REDIRECT_URI = os.environ.get('GOOGLE_REDIRECT_URI', 'http://localhost:5001/login/callback')
-        print(f"DEBUG: Loaded config from individual env vars - Client ID present: {bool(GOOGLE_CLIENT_ID)}")
+        GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+        print(f"DEBUG: Loaded config from individual env vars - Client ID present: {bool(GOOGLE_CLIENT_ID)}, Gemini API Key present: {bool(GEMINI_API_KEY)}")
     
     SESSION_TYPE = 'filesystem'
     SESSION_PERMANENT = False
@@ -94,9 +99,9 @@ class Config:
     PATIENT_DATA_FILE = 'pat_jsons.json'
     
     # Gemini API settings
-    # Set this in .env file
+    # Can be set in .env file, mnm_secret_key.json, or environment variable
     # Get API key from: https://makersuite.google.com/app/apikey
-    GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+    # GEMINI_API_KEY is set above (line 77 or 84) if loaded from JSON secret or env vars
     GEMINI_MODEL = os.environ.get('GEMINI_MODEL', 'gemini-2.0-flash-exp')  # Try gemini-2.0 first, fallback to 1.5
     
     # RADAR API settings

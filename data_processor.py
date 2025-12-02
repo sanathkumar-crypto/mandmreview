@@ -140,12 +140,174 @@ def is_abnormal_lab_result(lab_result: str) -> bool:
     # If no clear abnormal indicator, assume normal
     return False
 
+def extract_note_content(note: Dict[str, Any]) -> Dict[str, str]:
+    """
+    Extract note content as a dictionary mapping displayName to parsed value.
+    Returns a dict with component names as keys and their values.
+    """
+    content_dict = {}
+    content = note.get('content', [])
+    
+    for item in content:
+        if isinstance(item, dict):
+            # Extract components
+            if 'components' in item:
+                components = item.get('components', [])
+                for component in components:
+                    display_name = component.get('displayName', '')
+                    # Skip Assessment section
+                    if display_name.lower() == 'assessment':
+                        continue
+                    value = component.get('value', '')
+                    if value:
+                        parsed_value = parse_html_content(value)
+                        if parsed_value:
+                            content_dict[display_name] = parsed_value
+            else:
+                # Direct component
+                display_name = item.get('displayName', '')
+                # Skip Assessment section
+                if display_name.lower() == 'assessment':
+                    continue
+                value = item.get('value', '')
+                if value:
+                    parsed_value = parse_html_content(value)
+                    if parsed_value:
+                        content_dict[display_name] = parsed_value
+    
+    return content_dict
+
+def find_new_content(current_content: Dict[str, str], previous_content: Dict[str, str]) -> Dict[str, str]:
+    """
+    Compare current note content with previous note content and return only new/changed content.
+    Uses fuzzy matching - content is considered new if it's significantly different.
+    Handles date-stamped updates and extensions of previous content.
+    """
+    new_content = {}
+    
+    for display_name, current_value in current_content.items():
+        previous_value = previous_content.get(display_name, '')
+        
+        # If this component doesn't exist in previous note, it's new
+        if not previous_value:
+            new_content[display_name] = current_value
+        else:
+            # Normalize for comparison (remove extra whitespace)
+            current_normalized = ' '.join(current_value.split())
+            previous_normalized = ' '.join(previous_value.split())
+            
+            # If values are identical (after normalization), skip
+            if current_normalized == previous_normalized:
+                continue
+            
+            # Strategy 1: If current starts with previous content, extract what comes after
+            current_lower = current_value.lower()
+            previous_lower = previous_value.lower()
+            
+            # Check if previous content appears at the start of current (allowing for minor variations)
+            if current_lower.startswith(previous_lower):
+                # Previous is at the start - extract everything after it
+                new_part = current_value[len(previous_value):].strip()
+                if new_part:
+                    new_content[display_name] = new_part
+                    continue
+            
+            # Strategy 2: Find where previous content ends in current content
+            # This handles cases where there might be minor formatting differences
+            prev_idx = current_lower.find(previous_lower)
+            if prev_idx >= 0:
+                # Found previous content - get what comes after
+                after_prev = current_value[prev_idx + len(previous_value):].strip()
+                if after_prev:
+                    # Check if what comes after looks like a date-stamped update
+                    # Pattern: date pattern like "03/10/2025:" or "DD/MM/YYYY:" or similar
+                    import re
+                    date_pattern = r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\s*:'
+                    if re.search(date_pattern, after_prev, re.IGNORECASE):
+                        # It's a date-stamped update, include it
+                        new_content[display_name] = after_prev
+                        continue
+                    # Or if it's a significant amount of new text
+                    elif len(after_prev) > 20:  # At least 20 characters of new content
+                        new_content[display_name] = after_prev
+                        continue
+            
+            # Strategy 3: Check if current is an extension (contains previous + more)
+            # Calculate word overlap to determine if current extends previous
+            current_words = current_normalized.lower().split()
+            previous_words = previous_normalized.lower().split()
+            
+            if len(current_words) > len(previous_words):
+                # Check if previous words appear in sequence at the start of current
+                words_match = True
+                for i, prev_word in enumerate(previous_words[:min(10, len(previous_words))]):  # Check first 10 words
+                    if i < len(current_words) and current_words[i] != prev_word:
+                        words_match = False
+                        break
+                
+                if words_match:
+                    # Previous content is at the start, extract the rest
+                    # Find where previous normalized content ends
+                    prev_normalized_len = len(previous_normalized)
+                    if len(current_normalized) > prev_normalized_len:
+                        # Try to find a good split point
+                        # Look for sentence boundaries or date patterns after previous content
+                        remaining = current_value
+                        # Try to find where previous content ends in original (case-sensitive)
+                        prev_end_pos = -1
+                        for i in range(len(current_value) - len(previous_value) + 1):
+                            if current_value[i:i+len(previous_value)].lower() == previous_lower:
+                                prev_end_pos = i + len(previous_value)
+                                break
+                        
+                        if prev_end_pos >= 0:
+                            new_part = current_value[prev_end_pos:].strip()
+                            if new_part:
+                                new_content[display_name] = new_part
+                                continue
+            
+            # Strategy 4: Calculate similarity for different content
+            if current_words and previous_words:
+                overlap = len(set(current_words) & set(previous_words))
+                total_unique = len(set(current_words) | set(previous_words))
+                similarity = overlap / total_unique if total_unique > 0 else 0
+                
+                # If similarity is low (< 0.3), it's mostly new content
+                if similarity < 0.3:
+                    new_content[display_name] = current_value
+                # If similarity is moderate (0.3-0.7), it's partially new - show the whole thing
+                elif similarity < 0.7:
+                    new_content[display_name] = current_value
+                # If high similarity but not identical, try to extract new parts
+                else:
+                    # For high similarity, show the whole value as it likely has important updates
+                    new_content[display_name] = current_value
+            else:
+                # Fallback: if we can't determine, show the whole value
+                new_content[display_name] = current_value
+    
+    return new_content
+
+def format_note_content(content_dict: Dict[str, str]) -> str:
+    """Format note content dictionary as a string."""
+    note_text_parts = []
+    for display_name, value in content_dict.items():
+        note_text_parts.append(f"{display_name}: {value}")
+    return ' | '.join(note_text_parts)
+
 def extract_notes(patient_data: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Extract notes from patient data."""
+    """Extract notes from patient data with role-based diffing."""
     events = []
     notes = patient_data.get('notes', {}).get('finalNotes', [])
     
+    # Group notes by role and sort by timestamp
+    notes_by_role = {}
     for note in notes:
+        # Skip notes with role "Critical Care Registered Nurse"
+        note_role = note.get('role', '')
+        if note_role and note_role.lower() == 'critical care registered nurse':
+            continue
+        
         timestamp_str = note.get('createdTimestamp') or note.get('timestamp')
         if not timestamp_str:
             continue
@@ -153,48 +315,70 @@ def extract_notes(patient_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         timestamp = parse_timestamp(timestamp_str)
         if not timestamp:
             continue
+        
+        # Use empty string as default role if not specified
+        role_key = note_role if note_role else ''
+        if role_key not in notes_by_role:
+            notes_by_role[role_key] = []
+        
+        notes_by_role[role_key].append({
+            'note': note,
+            'timestamp': timestamp
+        })
+    
+    # Sort notes within each role by timestamp
+    for role_key in notes_by_role:
+        notes_by_role[role_key].sort(key=lambda x: x['timestamp'])
+    
+    # Process notes by role
+    for role_key, role_notes in notes_by_role.items():
+        previous_content = {}
+        
+        for idx, note_data in enumerate(role_notes):
+            note = note_data['note']
+            timestamp = note_data['timestamp']
             
-        # Extract all components
-        content = note.get('content', [])
-        note_text_parts = []
-        author_name = 'Unknown'
-        author_email = ''
-        
-        # Author can be in the note itself or in content items
-        author = note.get('author', {})
-        if isinstance(author, dict):
-            author_name = author.get('name', 'Unknown')
-            author_email = author.get('email', '')
-        
-        for item in content:
-            # Check if author is in this content item
-            if isinstance(item, dict):
-                item_author = item.get('author', {})
-                if isinstance(item_author, dict) and item_author.get('name'):
-                    author_name = item_author.get('name', author_name)
-                    author_email = item_author.get('email', author_email)
-                
-                # Extract components
-                if 'components' in item:
-                    components = item.get('components', [])
-                    for component in components:
-                        display_name = component.get('displayName', '')
-                        value = component.get('value', '')
-                        if value:
-                            parsed_value = parse_html_content(value)
-                            if parsed_value:
-                                note_text_parts.append(f"{display_name}: {parsed_value}")
-                else:
-                    # Direct component
-                    display_name = item.get('displayName', '')
-                    value = item.get('value', '')
-                    if value:
-                        parsed_value = parse_html_content(value)
-                        if parsed_value:
-                            note_text_parts.append(f"{display_name}: {parsed_value}")
-        
-        if note_text_parts:
-            note_text = ' | '.join(note_text_parts)
+            # Extract author info
+            author_name = 'Unknown'
+            author_email = ''
+            author = note.get('author', {})
+            if isinstance(author, dict):
+                author_name = author.get('name', 'Unknown')
+                author_email = author.get('email', '')
+            
+            # Check for author in content items
+            content = note.get('content', [])
+            for item in content:
+                if isinstance(item, dict):
+                    item_author = item.get('author', {})
+                    if isinstance(item_author, dict) and item_author.get('name'):
+                        author_name = item_author.get('name', author_name)
+                        author_email = item_author.get('email', author_email)
+            
+            # Extract current note content
+            current_content = extract_note_content(note)
+            
+            if not current_content:
+                continue
+            
+            # For first note of this role, show full content
+            # For subsequent notes, show only new content
+            if idx == 0:
+                # First note - show everything
+                display_content = current_content
+                previous_content = current_content.copy()
+            else:
+                # Subsequent note - show only new content
+                new_content = find_new_content(current_content, previous_content)
+                if not new_content:
+                    # No new content, skip this note
+                    continue
+                display_content = new_content
+                # Update previous content for next comparison
+                previous_content = current_content.copy()
+            
+            # Format and add event
+            note_text = format_note_content(display_content)
             
             events.append({
                 'timestamp': timestamp,
