@@ -291,7 +291,10 @@ def patient_lookup():
         
         if not cpmrn or not encounters:
             flash('Please provide both CPMRN and Encounters', 'error')
-            return render_template('patient_lookup.html')
+            has_patient_data = bool(session.get('patient_data'))
+            return render_template('patient_lookup.html', 
+                                 user_email=session.get('user_email', ''),
+                                 has_patient_data=has_patient_data)
         
         # Try to load service account if not already loaded
         if not Config.RADAR_READ_SERVICE_ACCOUNT:
@@ -300,11 +303,17 @@ def patient_lookup():
         
         if not Config.RADAR_READ_SERVICE_ACCOUNT:
             flash('Radar service account not configured. Please check configuration.', 'error')
-            return render_template('patient_lookup.html')
+            has_patient_data = bool(session.get('patient_data'))
+            return render_template('patient_lookup.html', 
+                                 user_email=session.get('user_email', ''),
+                                 has_patient_data=has_patient_data)
         
         if not Config.RADAR_URL:
             flash('Radar URL not configured. Please set RADAR_URL in environment variables.', 'error')
-            return render_template('patient_lookup.html')
+            has_patient_data = bool(session.get('patient_data'))
+            return render_template('patient_lookup.html', 
+                                 user_email=session.get('user_email', ''),
+                                 has_patient_data=has_patient_data)
         
         # Get patient data from Radar API
         logger.info(f"Fetching patient data for CPMRN: {cpmrn}, Encounters: {encounters}")
@@ -312,7 +321,10 @@ def patient_lookup():
         
         if not patient_data:
             flash(f'Patient not found for CPMRN: {cpmrn}, Encounters: {encounters}', 'error')
-            return render_template('patient_lookup.html')
+            has_patient_data = bool(session.get('patient_data'))
+            return render_template('patient_lookup.html', 
+                                 user_email=session.get('user_email', ''),
+                                 has_patient_data=has_patient_data)
         
         # Store patient data in session for timeline view
         session['patient_data'] = patient_data
@@ -321,7 +333,12 @@ def patient_lookup():
         
         return redirect(url_for('timeline'))
     
-    return render_template('patient_lookup.html')
+    # Check if patient data exists in session
+    has_patient_data = bool(session.get('patient_data'))
+    
+    return render_template('patient_lookup.html', 
+                         user_email=session.get('user_email', ''),
+                         has_patient_data=has_patient_data)
 
 @app.route('/timeline')
 @require_auth
@@ -351,12 +368,45 @@ def timeline():
     timeline_summary = analyze_timeline_summary(timeline_events)
     unaddressed_analysis = analyze_unaddressed_events(timeline_events)
     
+    # Patient data exists if we got here (otherwise would have redirected)
     return render_template('timeline.html', 
                          patient=patient_info, 
                          events=timeline_events,
                          timeline_summary=timeline_summary,
                          unaddressed_analysis=unaddressed_analysis,
-                         user_name=session.get('user_name', 'User'))
+                         user_name=session.get('user_name', 'User'),
+                         user_email=session.get('user_email', ''),
+                         has_patient_data=True)
+
+@app.route('/download-patient-json')
+@require_auth
+def download_patient_json():
+    """Download patient JSON file - restricted to specific users."""
+    user_email = session.get('user_email', '')
+    allowed_users = ['dileep.unni@cloudphysician.net', 'sanath.kumar@cloudphysician.net']
+    
+    if user_email not in allowed_users:
+        flash('Access denied. You do not have permission to download patient data.', 'error')
+        return redirect(url_for('patient_lookup'))
+    
+    # Get patient data from session or file
+    patient_data = session.get('patient_data') or load_patient_data()
+    
+    if not patient_data:
+        flash('No patient data available to download.', 'error')
+        return redirect(url_for('patient_lookup'))
+    
+    # Get patient identifier for filename
+    cpmrn = session.get('cpmrn', 'patient')
+    encounters = session.get('encounters', '')
+    filename = f"patient_{cpmrn}_{encounters}.json" if encounters else f"patient_{cpmrn}.json"
+    
+    # Create response with JSON data
+    response = jsonify(patient_data)
+    response.headers['Content-Disposition'] = f'attachment; filename={filename}'
+    response.headers['Content-Type'] = 'application/json'
+    
+    return response
 
 @app.route('/api/patient-data', methods=['POST'])
 @require_auth

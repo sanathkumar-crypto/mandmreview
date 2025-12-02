@@ -13,6 +13,9 @@
                 <h1 class="header-title">M&M Review System</h1>
                 <div class="header-actions">
                     <span class="user-name">{{ user_name }}</span>
+                    {% if user_email in ['dileep.unni@cloudphysician.net', 'sanath.kumar@cloudphysician.net'] and has_patient_data %}
+                    <a href="{{ url_for('download_patient_json') }}" class="btn-logout" style="margin-right: 10px;">Download JSON</a>
+                    {% endif %}
                     <a href="{{ url_for('logout') }}" class="btn-logout">Logout</a>
                 </div>
             </div>
