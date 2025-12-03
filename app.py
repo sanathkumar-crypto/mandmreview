@@ -7,10 +7,11 @@ from urllib.parse import urlparse, parse_qs, urlencode
 import json
 import os
 import logging
+import markdown
 from dotenv import load_dotenv
 from config import Config
 from data_processor import process_patient_data, get_patient_info
-from llm_analyzer import analyze_timeline_summary, analyze_unaddressed_events
+from llm_analyzer import analyze_timeline_summary, analyze_unaddressed_events, load_prompts
 from radar_service import get_patient_json, load_radar_read_service_account
 
 # Set up logging
@@ -432,6 +433,12 @@ def timeline():
     timeline_summary = analyze_timeline_summary(timeline_events)
     unaddressed_analysis = analyze_unaddressed_events(timeline_events)
     
+    # Convert markdown to HTML for display
+    if timeline_summary:
+        timeline_summary = markdown.markdown(timeline_summary, extensions=['nl2br', 'fenced_code'])
+    if unaddressed_analysis:
+        unaddressed_analysis = markdown.markdown(unaddressed_analysis, extensions=['nl2br', 'fenced_code'])
+    
     # Patient data exists if we got here (otherwise would have redirected)
     return render_template('timeline.html', 
                          patient=patient_info, 
@@ -500,6 +507,53 @@ def api_patient_data():
     if not patient_data:
         return jsonify({'error': 'Patient data not found'}), 404
     return jsonify(patient_data)
+
+@app.route('/prompt-manager', methods=['GET', 'POST'])
+@require_auth
+def prompt_manager():
+    """Prompt Manager - View and edit LLM prompts."""
+    prompts_file = os.path.join(os.path.dirname(__file__), 'prompts.json')
+    
+    if request.method == 'POST':
+        # Save updated prompts
+        try:
+            updated_prompts = {}
+            prompts = load_prompts()
+            
+            # Get updated templates from form
+            for prompt_key in prompts.keys():
+                template = request.form.get(f'prompt_{prompt_key}', '').strip()
+                if not template:
+                    flash(f'Prompt "{prompts[prompt_key].get("name", prompt_key)}" cannot be empty', 'error')
+                    return redirect(url_for('prompt_manager'))
+                
+                # Preserve name and description, update template
+                updated_prompts[prompt_key] = {
+                    'name': prompts[prompt_key].get('name', prompt_key),
+                    'description': prompts[prompt_key].get('description', ''),
+                    'template': template
+                }
+            
+            # Write to file
+            with open(prompts_file, 'w', encoding='utf-8') as f:
+                json.dump(updated_prompts, f, indent=2, ensure_ascii=False)
+            
+            flash('Prompts saved successfully!', 'success')
+            logger.info(f"Prompts updated by {session.get('user_email', 'unknown')}")
+            return redirect(url_for('prompt_manager'))
+            
+        except Exception as e:
+            error_msg = f"Error saving prompts: {str(e)}"
+            logger.error(error_msg)
+            flash(error_msg, 'error')
+            return redirect(url_for('prompt_manager'))
+    
+    # GET: Display prompts for editing
+    prompts = load_prompts()
+    return render_template('prompt_manager.html',
+                         prompts=prompts,
+                         user_email=session.get('user_email', ''),
+                         user_name=session.get('user_name', 'User'))
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5001))

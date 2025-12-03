@@ -1,7 +1,47 @@
 import google.generativeai as genai
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+import json
+import os
 from config import Config
+
+def load_prompts():
+    """Load prompts from prompts.json file with fallback to defaults."""
+    prompts_file = os.path.join(os.path.dirname(__file__), 'prompts.json')
+    
+    # Default prompts (fallback if file doesn't exist)
+    default_prompts = {
+        "timeline_summary": {
+            "name": "Timeline Summary",
+            "description": "Prompt used to generate a concise summary of significant timeline events from patient EMR data.",
+            "template": "You are a medical review assistant analyzing a patient's EMR timeline. Review the following chronological events and provide a concise summary focusing on:\n\n1. Significant clinical events (admissions, procedures, critical changes)\n2. Important diagnostic findings (abnormal labs, imaging results)\n3. Treatment decisions and their timing\n4. Critical vital sign changes\n5. Major interventions or changes in care\n\nFocus only on clinically significant events. Ignore routine measurements that are within normal limits.\n\nTimeline Events:\n{events_text}\n\nProvide a structured summary in 3-4 bullet points highlighting the most important clinical events and their progression. Be concise but specific."
+        },
+        "unaddressed_events": {
+            "name": "Unaddressed Events Analysis",
+            "description": "Prompt used to identify abnormal vital signs and lab results that are not mentioned or addressed in clinical notes.",
+            "template": "You are a medical review assistant. Analyze the following patient data to identify:\n\n1. Abnormal vital signs that are NOT mentioned or addressed in clinical notes\n2. Abnormal lab results that are NOT mentioned or addressed in clinical notes\n3. Critical values that appear to be overlooked\n\nClinical Notes:\n{notes_text}\n\nVital Signs:\n{vitals_text}\n\nLab Results:\n{labs_text}\n\nFor each unaddressed finding, identify:\n- The specific abnormal value\n- When it occurred\n- Why it's significant (e.g., \"Elevated temperature of 101°F on 2025-07-15 not addressed in notes\")\n- Clinical significance\n\nIf all significant findings appear to be addressed, state that. Be specific and concise."
+        }
+    }
+    
+    try:
+        if os.path.exists(prompts_file):
+            with open(prompts_file, 'r', encoding='utf-8') as f:
+                prompts_data = json.load(f)
+                # Merge with defaults to ensure all keys exist
+                result = default_prompts.copy()
+                result.update(prompts_data)
+                return result
+        else:
+            return default_prompts
+    except (json.JSONDecodeError, IOError) as e:
+        print(f"Warning: Failed to load prompts from {prompts_file}: {e}. Using defaults.")
+        return default_prompts
+
+def get_prompt_template(prompt_key: str) -> str:
+    """Get a specific prompt template by key."""
+    prompts = load_prompts()
+    prompt_data = prompts.get(prompt_key, {})
+    return prompt_data.get('template', '')
 
 def initialize_gemini():
     """Initialize Gemini API client."""
@@ -88,20 +128,12 @@ def analyze_timeline_summary(events: List[Dict[str, Any]]) -> Optional[str]:
     
     events_text = "\n".join(formatted_events)
     
-    prompt = f"""You are a medical review assistant analyzing a patient's EMR timeline. Review the following chronological events and provide a concise summary focusing on:
-
-1. Significant clinical events (admissions, procedures, critical changes)
-2. Important diagnostic findings (abnormal labs, imaging results)
-3. Treatment decisions and their timing
-4. Critical vital sign changes
-5. Major interventions or changes in care
-
-Focus only on clinically significant events. Ignore routine measurements that are within normal limits.
-
-Timeline Events:
-{events_text}
-
-Provide a structured summary in 3-4 bullet points highlighting the most important clinical events and their progression. Be concise but specific."""
+    # Load prompt template from JSON file
+    prompt_template = get_prompt_template('timeline_summary')
+    if not prompt_template:
+        return "Error: Timeline summary prompt template not found"
+    
+    prompt = prompt_template.format(events_text=events_text)
 
     try:
         response = model.generate_content(prompt)
@@ -136,28 +168,16 @@ def analyze_unaddressed_events(events: List[Dict[str, Any]]) -> Optional[str]:
     vitals_text = "\n".join([format_event_for_llm(v) for v in vitals[:30]])
     labs_text = "\n".join([format_event_for_llm(l) for l in labs[:30]])
     
-    prompt = f"""You are a medical review assistant. Analyze the following patient data to identify:
-
-1. Abnormal vital signs that are NOT mentioned or addressed in clinical notes
-2. Abnormal lab results that are NOT mentioned or addressed in clinical notes
-3. Critical values that appear to be overlooked
-
-Clinical Notes:
-{notes_text}
-
-Vital Signs:
-{vitals_text}
-
-Lab Results:
-{labs_text}
-
-For each unaddressed finding, identify:
-- The specific abnormal value
-- When it occurred
-- Why it's significant (e.g., "Elevated temperature of 101°F on 2025-07-15 not addressed in notes")
-- Clinical significance
-
-If all significant findings appear to be addressed, state that. Be specific and concise."""
+    # Load prompt template from JSON file
+    prompt_template = get_prompt_template('unaddressed_events')
+    if not prompt_template:
+        return "Error: Unaddressed events prompt template not found"
+    
+    prompt = prompt_template.format(
+        notes_text=notes_text,
+        vitals_text=vitals_text,
+        labs_text=labs_text
+    )
 
     try:
         response = model.generate_content(prompt)

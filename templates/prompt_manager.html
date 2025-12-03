@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prompt Manager - M&M Review</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        .prompt-section {
+            background: white;
+            border-radius: 8px;
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .prompt-header {
+            margin-bottom: 16px;
+        }
+        .prompt-name {
+            font-size: 1.25rem;
+            font-weight: bold;
+            color: var(--primary-dark-blue);
+            margin-bottom: 8px;
+        }
+        .prompt-description {
+            color: #666;
+            font-size: 0.9rem;
+            margin-bottom: 12px;
+        }
+        .prompt-textarea {
+            width: 100%;
+            min-height: 300px;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            resize: vertical;
+        }
+        .prompt-textarea:focus {
+            outline: none;
+            border-color: var(--primary-dark-blue);
+            box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.1);
+        }
+        .btn-save {
+            background-color: var(--primary-dark-blue);
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .btn-save:hover {
+            background-color: #0056b3;
+        }
+        .btn-save:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .info-box {
+            background-color: #e7f3ff;
+            border-left: 4px solid var(--primary-dark-blue);
+            padding: 12px 16px;
+            margin-bottom: 24px;
+            border-radius: 4px;
+        }
+        .info-box p {
+            margin: 0;
+            color: #004085;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="min-h-screen" style="background-color: #f8f9fa;">
+        <header class="header">
+            <div class="header-content">
+                <h1 class="header-title">M&M Review System</h1>
+                <div class="header-actions">
+                    <a href="{{ url_for('patient_lookup') }}" class="btn-logout" style="margin-right: 10px;">Patient Lookup</a>
+                    <span class="user-name">{{ user_name }}</span>
+                    <a href="{{ url_for('logout') }}" class="btn-logout">Logout</a>
+                </div>
+            </div>
+        </header>
+        
+        <main class="max-w-full px-6 py-6" style="max-width: 1200px; margin: 0 auto;">
+            <div class="mb-6">
+                <h2 class="text-2xl font-bold" style="color: var(--primary-dark-blue);">Prompt Manager</h2>
+                <p class="text-sm opacity-70 mt-1">Manage and edit LLM prompts used for patient data analysis</p>
+            </div>
+            
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="mb-4 p-4 rounded {% if category == 'error' %}bg-red-100 text-red-700{% elif category == 'success' %}bg-green-100 text-green-700{% else %}bg-blue-100 text-blue-700{% endif %}">
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+            
+            <div class="info-box">
+                <p><strong>Note:</strong> Changes to prompts will take effect immediately for new analyses. Use placeholders like <code>{events_text}</code>, <code>{notes_text}</code>, <code>{vitals_text}</code>, and <code>{labs_text}</code> where dynamic content should be inserted.</p>
+            </div>
+            
+            <form method="POST" action="{{ url_for('prompt_manager') }}" id="prompt-form">
+                {% for prompt_key, prompt_data in prompts.items() %}
+                <div class="prompt-section">
+                    <div class="prompt-header">
+                        <div class="prompt-name">{{ prompt_data.name }}</div>
+                        <div class="prompt-description">{{ prompt_data.description }}</div>
+                    </div>
+                    <textarea 
+                        name="prompt_{{ prompt_key }}" 
+                        id="prompt_{{ prompt_key }}"
+                        class="prompt-textarea"
+                        required>{{ prompt_data.template }}</textarea>
+                </div>
+                {% endfor %}
+                
+                <div style="text-align: right; margin-top: 24px;">
+                    <button type="submit" class="btn-save">Save All Prompts</button>
+                </div>
+            </form>
+        </main>
+    </div>
+</body>
+</html>
+
