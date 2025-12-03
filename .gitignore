@@ -32,3 +32,4 @@ mnm_secret_key.json
 flask_session/
 
 radar_service_account.json
+nohup.out
