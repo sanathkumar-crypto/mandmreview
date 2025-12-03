@@ -1,0 +1,12 @@
+INFO:__main__:Running in Cloud Run: False
+INFO:__main__:OAuth Client ID configured: True
+INFO:__main__:OAuth Redirect URI: https://mnm-971880579407.asia-south1.run.app/login/callback
+INFO:__main__:Attempting to load Radar service account from file...
+INFO:radar_service:✅ Successfully loaded RADAR_READ_SERVICE_ACCOUNT from radar_service_account.json
+DEBUG: Successfully loaded MNM_SECRET_KEY from local JSON file: /home/sanath/mandmreview/mnm_secret_key.json
+DEBUG: Found keys: ['SECRET_KEY', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI']
+DEBUG: Loaded config from MNM_SECRET_KEY - Client ID present: True, Redirect URI: https://mnm-971880579407.asia-south1.run.app/login/callback, Gemini API Key present: True
+ * Serving Flask app 'app'
+ * Debug mode: on
+Address already in use
+Port 5001 is in use by another program. Either identify and stop that program, or start the server with a different port.

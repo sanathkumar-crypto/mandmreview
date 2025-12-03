@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 from config import Config
 from data_processor import process_patient_data, get_patient_info
 from llm_analyzer import analyze_timeline_summary, analyze_unaddressed_events
-from radar_service import get_patient_json, load_radar_read_service_account, get_user_role
+from radar_service import get_patient_json, load_radar_read_service_account
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -74,9 +74,6 @@ def load_patient_data():
 
 def is_authenticated():
     """Check if user is authenticated."""
-    # In local development (not Cloud Run), bypass OAuth
-    if not is_cloud_run:
-        return True
     return 'user_email' in session and session.get('user_email', '').endswith('@cloudphysician.net')
 
 def require_auth(f):
@@ -101,19 +98,19 @@ def login():
     if is_authenticated():
         return redirect(url_for('patient_lookup'))
     
-    # In local development (not Cloud Run), bypass OAuth and auto-authenticate
-    if not is_cloud_run:
-        logger.info("Local development mode: bypassing OAuth")
-        session['user_email'] = 'dev@cloudphysician.net'
-        session['user_name'] = 'Development User'
-        # Set default role for development (can be overridden via env var)
-        session['user_role'] = os.environ.get('DEV_USER_ROLE', '')
-        return redirect(url_for('patient_lookup'))
-    
-    # Ensure OAUTHLIB_INSECURE_TRANSPORT is set for localhost
-    redirect_uri = app.config.get('GOOGLE_REDIRECT_URI', 'http://localhost:5000/login/callback').strip()
-    if 'localhost' in redirect_uri or '127.0.0.1' in redirect_uri:
+    # For local development, always use localhost redirect URI
+    # Check if we're running locally (not in Cloud Run)
+    is_local = not os.environ.get('K_SERVICE')
+    if is_local:
+        # Use localhost with the port the app is running on
+        port = int(os.environ.get('PORT', 5001))
+        redirect_uri = f'http://localhost:{port}/login/callback'
         os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
+    else:
+        # In Cloud Run, use the configured redirect URI
+        redirect_uri = app.config.get('GOOGLE_REDIRECT_URI', 'http://localhost:5001/login/callback').strip()
+        if 'localhost' in redirect_uri or '127.0.0.1' in redirect_uri:
+            os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
     
     # Check if we have OAuth credentials configured
     client_id = app.config.get('GOOGLE_CLIENT_ID', '').strip()
@@ -187,14 +184,21 @@ def login_callback():
     if request.args.get('dev') == 'true':
         session['user_email'] = 'dev@cloudphysician.net'
         session['user_name'] = 'Development User'
-        # Set default role for development (can be overridden via env var)
-        session['user_role'] = os.environ.get('DEV_USER_ROLE', '')
         return redirect(url_for('patient_lookup'))
     
-    # Ensure OAUTHLIB_INSECURE_TRANSPORT is set for localhost
-    redirect_uri = app.config.get('GOOGLE_REDIRECT_URI', 'http://localhost:5000/login/callback').strip()
-    if 'localhost' in redirect_uri or '127.0.0.1' in redirect_uri:
+    # For local development, always use localhost redirect URI
+    # Check if we're running locally (not in Cloud Run)
+    is_local = not os.environ.get('K_SERVICE')
+    if is_local:
+        # Use localhost with the port the app is running on
+        port = int(os.environ.get('PORT', 5001))
+        redirect_uri = f'http://localhost:{port}/login/callback'
         os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
+    else:
+        # In Cloud Run, use the configured redirect URI
+        redirect_uri = app.config.get('GOOGLE_REDIRECT_URI', 'http://localhost:5001/login/callback').strip()
+        if 'localhost' in redirect_uri or '127.0.0.1' in redirect_uri:
+            os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
     
     if 'error' in request.args:
         error = request.args.get('error')
@@ -262,6 +266,9 @@ def login_callback():
             elif callback_url.startswith('http://'):
                 # Fallback: just replace http with https
                 callback_url = callback_url.replace('http://', 'https://', 1)
+        else:
+            # Local development - use the request URL as-is (should be localhost)
+            callback_url = request.url
         
         print(f"DEBUG: Fetching token with URL: {callback_url[:200]}...")
         flow.fetch_token(authorization_response=callback_url)
@@ -291,17 +298,6 @@ def login_callback():
         session['user_email'] = email
         session['user_name'] = user_info.get('name', email)
         session.pop('oauth_state', None)
-        
-        # Get user role from Radar API
-        try:
-            user_role = get_user_role(email)
-            if user_role:
-                session['user_role'] = user_role
-                logger.info(f"User role retrieved: {user_role}")
-            else:
-                logger.warning(f"Could not retrieve user role for {email}")
-        except Exception as e:
-            logger.error(f"Error retrieving user role: {e}")
         
         return redirect(url_for('patient_lookup'))
     except Exception as e:
@@ -432,12 +428,9 @@ def timeline():
         if hasattr(event['timestamp'], 'isoformat'):
             event['timestamp'] = event['timestamp'].isoformat()
     
-    # Generate LLM analyses (only if there are events to analyze)
-    timeline_summary = None
-    unaddressed_analysis = None
-    if timeline_events:
-        timeline_summary = analyze_timeline_summary(timeline_events)
-        unaddressed_analysis = analyze_unaddressed_events(timeline_events)
+    # Generate LLM analyses
+    timeline_summary = analyze_timeline_summary(timeline_events)
+    unaddressed_analysis = analyze_unaddressed_events(timeline_events)
     
     # Patient data exists if we got here (otherwise would have redirected)
     return render_template('timeline.html', 

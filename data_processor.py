@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 import re
 from html import unescape
@@ -300,6 +300,8 @@ def extract_content_after_date(summary_text: str, note_date: datetime) -> str:
     For physician progress notes, find the date in the summary that matches the note's date
     and return only the content after that date.
     
+    Uses Regex for robust matching of various date formats and spacing.
+    
     Args:
         summary_text: The summary text to search
         note_date: The datetime of the note creation
@@ -310,65 +312,94 @@ def extract_content_after_date(summary_text: str, note_date: datetime) -> str:
     if not summary_text or not note_date:
         return summary_text
     
-    # Generate various date format patterns to search for
-    # Format: DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY, etc.
-    day = note_date.day
-    month = note_date.month
-    year = note_date.year
-    
-    # Try different date formats
-    date_patterns = [
-        f"{day:02d}/{month:02d}/{year}",  # 03/10/2025
-        f"{day}/{month}/{year}",  # 3/10/2025
-        f"{day:02d}-{month:02d}-{year}",  # 03-10-2025
-        f"{day}-{month}-{year}",  # 3-10-2025
-        f"{day:02d}.{month:02d}.{year}",  # 03.10.2025
-        f"{day}.{month}.{year}",  # 3.10.2025
-        f"{day:02d}/{month:02d}/{year % 100:02d}",  # 03/10/25
-        f"{day}/{month}/{year % 100}",  # 3/10/25
+    # 1. Generate dates to check (Current, Previous, Next)
+    # Using timedelta ensures we handle month/year rollovers correctly (e.g. Oct 1 -> Sept 30)
+    dates_to_check = [
+        note_date,
+        note_date - timedelta(days=1),
+        note_date + timedelta(days=1)
     ]
     
-    # Also try with month/day swapped (US format)
-    date_patterns.extend([
-        f"{month:02d}/{day:02d}/{year}",  # 10/03/2025
-        f"{month}/{day}/{year}",  # 10/3/2025
-        f"{month:02d}-{day:02d}-{year}",  # 10-03-2025
-        f"{month}-{day}-{year}",  # 10-3-2025
-    ])
-    
-    # Search for each date pattern
-    for date_pattern in date_patterns:
-        # Look for date followed by colon or space
-        pattern_with_colon = f"{date_pattern}:"
-        pattern_with_space = f"{date_pattern} "
+    for date_obj in dates_to_check:
+        d = date_obj.day
+        m = date_obj.month
+        y = date_obj.year
+        yy = y % 100  # 2-digit year
         
-        # Try to find date with colon first (most common format)
-        idx_colon = summary_text.find(pattern_with_colon)
-        if idx_colon >= 0:
-            # Found date with colon, extract content after it
-            content_after = summary_text[idx_colon + len(pattern_with_colon):].strip()
-            if content_after:
-                return content_after
+        # 2. Build Regex Components
+        # d_pat matches "3" or "03"
+        d_pat = f"0?{d}"
+        m_pat = f"0?{m}"
+        y_pat = f"(?:{y}|{yy})"  # Matches 2025 or 25
         
-        # Try date with space
-        idx_space = summary_text.find(pattern_with_space)
-        if idx_space >= 0:
-            # Found date with space, extract content after it
-            content_after = summary_text[idx_space + len(pattern_with_space):].strip()
-            if content_after:
-                return content_after
+        # 3. Define flexible patterns
+        patterns = [
+            # DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY
+            f"{d_pat}[/.-]{m_pat}[/.-]{y_pat}",
+            # MM/DD/YYYY (US format)
+            f"{m_pat}[/.-]{d_pat}[/.-]{y_pat}",
+            # DD/MM (Partial date, e.g. 03/10)
+            f"{d_pat}[/.-]{m_pat}",
+            # MM/DD (US Partial)
+            f"{m_pat}[/.-]{d_pat}"
+        ]
+        
+        for pat in patterns:
+            # Construct the full regex:
+            # ({pat})   -> Capture the date group
+            # \s* -> Allow any amount of whitespace (or none)
+            # [:\-]?    -> Allow an optional colon or dash separator
+            regex = f"({pat})\s*[:\-]?"
+            
+            # re.IGNORECASE makes it case insensitive
+            match = re.search(regex, summary_text, re.IGNORECASE)
+            
+            if match:
+                # match.end() gives the index immediately after the date and separator
+                # This automatically handles "observed.03/10/2025:" -> splits after the colon
+                extracted_content = summary_text[match.end():].strip()
+                
+                # Only return if we actually found content after the date
+                if extracted_content:
+                    return extracted_content
     
     # If no date pattern found, return original text
     return summary_text
 
 def is_physician_note(note: Dict[str, Any]) -> bool:
     """Check if note is by a physician."""
+    # Check top-level author first
     author = note.get('author', {})
     if isinstance(author, dict):
         role = author.get('role', '').lower()
         # Check if role contains 'physician' or 'doctor' or similar
         if 'physician' in role or 'doctor' in role or role == 'physician':
             return True
+        
+        # Also check author name for "Dr." or "MD" prefix
+        name = author.get('name', '').strip()
+        if name:
+            name_lower = name.lower()
+            if name.startswith('Dr.') or name.startswith('Dr ') or ' md' in name_lower or ', md' in name_lower:
+                return True
+    
+    # Also check authors in content items (some notes have author in content, not at top level)
+    content = note.get('content', [])
+    for item in content:
+        if isinstance(item, dict):
+            item_author = item.get('author', {})
+            if isinstance(item_author, dict):
+                role = item_author.get('role', '').lower()
+                # Check if role contains 'physician' or 'doctor' or similar
+                if 'physician' in role or 'doctor' in role or role == 'physician':
+                    return True
+                
+                # Also check author name for "Dr." or "MD" prefix
+                name = item_author.get('name', '').strip()
+                if name:
+                    name_lower = name.lower()
+                    if name.startswith('Dr.') or name.startswith('Dr ') or ' md' in name_lower or ', md' in name_lower:
+                        return True
     
     # Also check noteType
     note_type = note.get('noteType', '').lower()
@@ -451,10 +482,25 @@ def extract_notes(patient_data: Dict[str, Any]) -> List[Dict[str, Any]]:
                 if 'Summary' in current_content:
                     summary_text = current_content['Summary']
                     # Extract content after the date in summary
+                    # The date extraction function can handle "Summary:" prefix in the text
                     summary_after_date = extract_content_after_date(summary_text, timestamp)
                     if summary_after_date != summary_text:
                         # Date was found, update summary with content after date
+                        # The extracted content is already the text after the date, so we can use it directly
+                        # format_note_content will add "Summary: " prefix when formatting
                         current_content['Summary'] = summary_after_date
+                        # Debug logging
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.info(f"✓ Date extraction applied for physician note by {author_name} on {timestamp}")
+                        logger.debug(f"  Original summary length: {len(summary_text)}, Extracted length: {len(summary_after_date)}")
+                        logger.debug(f"  Extracted content: {summary_after_date[:100]}...")
+                    else:
+                        # Debug: why didn't date extraction work?
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.debug(f"✗ Date extraction did not find matching date for physician note by {author_name} on {timestamp}")
+                        logger.debug(f"  Summary length: {len(summary_text)}, First 200 chars: {summary_text[:200]}")
                 
                 # For physician notes, show full content (date-based filtering already applied)
                 display_content = current_content
