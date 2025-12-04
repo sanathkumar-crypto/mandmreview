@@ -51,3 +51,4 @@ echo "⚠️  IMPORTANT: Also update the redirect URI in Google Cloud Console OA
 echo "   https://console.cloud.google.com/apis/credentials?project=$PROJECT_ID"
 echo "   Add this to 'Authorized redirect URIs': $REDIRECT_URI"
 
+

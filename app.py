@@ -221,9 +221,23 @@ def login_callback():
     
     client_id = app.config.get('GOOGLE_CLIENT_ID', '').strip()
     client_secret = app.config.get('GOOGLE_CLIENT_SECRET', '').strip()
+    redirect_uri = app.config.get('GOOGLE_REDIRECT_URI', '').strip()
     
     if not client_id or not client_secret:
         return "OAuth not configured", 500
+    
+    # In Cloud Run, ensure OAUTHLIB_INSECURE_TRANSPORT is NOT set
+    if os.environ.get('K_SERVICE'):
+        os.environ.pop('OAUTHLIB_INSECURE_TRANSPORT', None)
+        # Ensure redirect_uri is HTTPS
+        if redirect_uri and not redirect_uri.startswith('https://'):
+            # Try to get from Cloud Run environment
+            service_url = os.environ.get('K_SERVICE_URL', '')
+            if service_url:
+                redirect_uri = f"{service_url}/login/callback"
+            else:
+                # Fallback: construct from request
+                redirect_uri = request.url.replace('http://', 'https://', 1).split('?')[0]
     
     # Validate state - if session state exists, it must match. Otherwise, proceed with received state
     if state and state != received_state:
@@ -238,6 +252,8 @@ def login_callback():
     
     try:
         print(f"DEBUG: Creating OAuth flow for callback with redirect URI: {redirect_uri}")
+        print(f"DEBUG: OAUTHLIB_INSECURE_TRANSPORT: {os.environ.get('OAUTHLIB_INSECURE_TRANSPORT', 'NOT SET')}")
+        print(f"DEBUG: Is Cloud Run: {bool(os.environ.get('K_SERVICE'))}")
         client_config = {
             "web": {
                 "client_id": client_id,
@@ -257,7 +273,11 @@ def login_callback():
         # request.url might be HTTP internally, but we need HTTPS for OAuth
         callback_url = request.url
         if os.environ.get('K_SERVICE'):
-            # We're in Cloud Run - construct proper HTTPS URL
+            # We're in Cloud Run - MUST use HTTPS
+            # Ensure OAUTHLIB_INSECURE_TRANSPORT is not set
+            os.environ.pop('OAUTHLIB_INSECURE_TRANSPORT', None)
+            
+            # Construct proper HTTPS URL
             if redirect_uri.startswith('https://'):
                 # Use the redirect_uri as base and append query parameters
                 parsed_request = urlparse(request.url)
@@ -265,13 +285,18 @@ def login_callback():
                 # Build the callback URL using the configured redirect_uri
                 callback_url = f"{redirect_uri}?{urlencode(query_params, doseq=True)}"
             elif callback_url.startswith('http://'):
-                # Fallback: just replace http with https
+                # Fallback: replace http with https
                 callback_url = callback_url.replace('http://', 'https://', 1)
+            
+            # Double-check that callback_url is HTTPS
+            if not callback_url.startswith('https://'):
+                raise ValueError(f"Callback URL must be HTTPS in Cloud Run, got: {callback_url[:100]}")
         else:
             # Local development - use the request URL as-is (should be localhost)
             callback_url = request.url
         
         print(f"DEBUG: Fetching token with URL: {callback_url[:200]}...")
+        print(f"DEBUG: Callback URL is HTTPS: {callback_url.startswith('https://')}")
         flow.fetch_token(authorization_response=callback_url)
         print("DEBUG: Token fetched successfully")
         
